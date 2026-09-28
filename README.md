@@ -20,6 +20,8 @@
                                     「停在哪一格＋接續要什麼」，不准只寫「延後」
 「系統接線圖畫過」                    圖要能被拔除演練檢查：拔掉一個模組，
                                     其他地方的測試還全綠，那張圖就是幽靈
+「我方測試全綠」                    如果那個值是送出去給別人收的，全綠只證明
+                                    你猜的規則自己相容——測試裡的對方是假的
 ```
 
 ## 60 秒上手
@@ -28,7 +30,9 @@
    `ACCEPTANCE_FIRST.md`（驗收條件）、`RULINGS.md`（裁決登記簿）、`DEFERRED_DEFECTS.md`（延後缺陷）。
 2. 開工前把 `ACCEPTANCE_FIRST.md` 四段填完，**現在跑一次驗收指令，它應該是紅的**。
 3. 收工前打開 [`docs/three-track-checklist.md`](./docs/three-track-checklist.md)，
-   TDD／BDD／GDD 三軌逐條走一遍。
+   TDD／BDD／GDD 三軌逐條走一遍——**外加最後那一節**：
+   這批有沒有任何值是送出去給別人收的？有的話，**對方是替身的那種測試驗不到它**，
+   走 [`docs/cross-system-numbers.md`](./docs/cross-system-numbers.md)。
 4. 想知道每一條規矩是踩了什麼坑才有的，看 [`docs/pitfall-stories.md`](./docs/pitfall-stories.md)。
 5. 想看填完的樣子長怎樣，看 [`example/`](./example) 資料夾（一個虛構的待辦清單命令列工具）。
 6. 想跑一次「這個 repo 裡有沒有真實專案內容」的自我檢查：
@@ -39,7 +43,7 @@
 ## 為什麼存在
 
 規矩誰都抄得到。抄不到的是「照著規矩做還是出錯，因為漏問了哪一題」——
-見 [`docs/pitfall-stories.md`](./docs/pitfall-stories.md) 的三個踩坑故事（已改寫成不含任何
+見 [`docs/pitfall-stories.md`](./docs/pitfall-stories.md) 的踩坑故事（已改寫成不含任何
 真實專案內容的版本）。
 
 ## 目錄
@@ -48,9 +52,11 @@
 - [`templates/RULINGS.md`](./templates/RULINGS.md) — 裁決登記簿模板
 - [`templates/DEFERRED_DEFECTS.md`](./templates/DEFERRED_DEFECTS.md) — 延後缺陷清單模板
 - [`docs/three-track-checklist.md`](./docs/three-track-checklist.md) — TDD／BDD／GDD 三軌檢查表
+- [`docs/cross-system-numbers.md`](./docs/cross-system-numbers.md) — **三軌裡最容易被漏掉的那一格**：
+  任何送出去給別人收的數字（另一個服務、別人的 API、雲端供應商）
 - [`docs/gdd.md`](./docs/gdd.md) — 圖驅動開發（Graph-Driven Development）完整方法論
 - [`docs/grilling-your-plan.md`](./docs/grilling-your-plan.md) — 怎麼 grill 自己的計畫
-- [`docs/pitfall-stories.md`](./docs/pitfall-stories.md) — 三個踩坑故事
+- [`docs/pitfall-stories.md`](./docs/pitfall-stories.md) — 踩坑故事（會持續增加，刻意不寫死幾個）
 - [`example/`](./example) — 上面五份模板／文件，用一個虛構專案填完的樣子
 - [`scripts/scan-for-real-content.sh`](./scripts/scan-for-real-content.sh) — 掃「有沒有真實內容外流」的自查工具
 - [`scripts/test-scan.sh`](./scripts/test-scan.sh) — 上面那支腳本的自我測試（先紅後綠＋拔除演練）
@@ -70,6 +76,12 @@
 CI 的腳本（例如：真的擋下一個沒填驗收條件的提交、真的擋下一個過期的接線圖）。
 這不是空殼佔位——是誠實劃線：這一版給的是紀律本身跟怎麼判斷，執法腳本需要配合
 各專案自己的工具鏈（Git hook、CI 設定）才有意義，之後另外出。
+
+🔴 **這個包自己也還欠一條它自己要求別人做的事**（獨立覆核指出，誠實記在這裡）：
+自查腳本只掃「有沒有真實內容外流」，**沒有一條斷言在守「文件之間的指路還在不在」**。
+所以如果有人把 `README.md` 或三軌檢查表裡指向某份文件的連結刪掉，
+`scripts/test-scan.sh` 的六項**不會變紅**——而那正是本包 GDD 那一節在講的「幽靈文件」。
+現況不是幽靈（每份文件都還有多個入站連結），但**沒有機械在守**。這一條列進下一版。
 
 ## 授權與著作權
 
