@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # test-scan.sh — 自我測試 scan-for-real-content.sh。
 #
-# 對三種結構不同的違規各做一次「先紅後綠」＋一次「拔除演練」：
+# 對四種結構不同的違規各做一次「先紅後綠」＋一次「拔除演練」：
 #   樣本 A：絕對路徑違規（靠正規表達式）
 #   樣本 B：denylist 詞違規（靠清單逐字比對）
 #   樣本 C：機器產生的資料夾要被跳過，但普通檔案裡的同一個字串還是要抓到（靠目錄排除）
+#   樣本 D：文件之間的指路還在不在（靠 check-links.sh，被測的是另一支腳本）
 # 拔除演練的意思是：把對應的檢查邏輯關掉，同一份原本該被擋的違規檔案
 # 必須變成「放行」——藉此證明剛才擋下它的，真的是那條邏輯，不是巧合。
 #
@@ -93,6 +94,25 @@ REPO_OUT="$("$SCANNER" "$SCRIPT_DIR/.." "$SCRIPT_DIR/denylist.txt" 2>&1)"
 REPO_RC=$?
 echo "$REPO_OUT"
 check "整個 repo 掃描：出貨版應該零命中" 0 "$REPO_RC"
+
+# ---------- 樣本 D：文件之間的指路還在不在（check-links.sh） ----------
+# 這一組補的是這個包自己欠的一條：在這之前，把任何一份文件的連結刪掉或改錯，
+# 這支自我測試都不會變紅——而那正是本包 GDD 那一節在講的「幽靈文件」。
+LINKER="$SCRIPT_DIR/check-links.sh"
+mkdir -p "$TMP/sampleD/docs"
+printf '看 [這一份](./docs/does-not-exist.md) 還有 [這一份](./docs/real.md)\n' >"$TMP/sampleD/a.md"
+echo "存在的檔案" >"$TMP/sampleD/docs/real.md"
+
+bash "$LINKER" "$TMP/sampleD" >/dev/null 2>&1
+check "樣本D 正向：指不到東西的連結要被抓到（紅）" 1 $?
+
+LINKCHECK_DISABLE_EXISTS=1 bash "$LINKER" "$TMP/sampleD" >/dev/null 2>&1
+check "樣本D 拔除演練：關掉「目標存不存在」這條判斷後，同一份壞連結應變成放行" 0 $?
+
+LINK_OUT="$(bash "$LINKER" "$SCRIPT_DIR/.." 2>&1)"
+LINK_RC=$?
+echo "$LINK_OUT"
+check "整個 repo 連結檢查：每一份文件的指路都還指得到（綠）" 0 "$LINK_RC"
 
 echo "----"
 echo "通過 $PASS / 失敗 $FAIL"
