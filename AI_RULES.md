@@ -82,7 +82,7 @@
 ### 五、東西放在哪裡
 
 - 驗收條件：`docs/ACCEPTANCE_FIRST.md` — **開工前先讀它，不是收工才讀**
-- 交出去之前先讓**另一顆模型**挑一次錯：做法見 [`docs/second-opinion.md`](./docs/second-opinion.md)
+- 交出去之前先讓**另一顆模型**挑一次錯（沒有第二顆的話，至少開一個全新對話）：做法見 [`docs/second-opinion.md`](./docs/second-opinion.md)
 - 寫完任何檢查，立刻**故意弄壞一次**證明它會紅：做法見 [`docs/break-it-on-purpose.md`](./docs/break-it-on-purpose.md)
 - 工作日誌：`docs/PROJECT_NOTEBOOK.md` — **每做完一段就寫一行，不要等收尾才補**
 - 我做過的決定：`docs/RULINGS.md`

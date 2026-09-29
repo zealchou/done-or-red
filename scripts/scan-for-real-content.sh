@@ -17,8 +17,16 @@
 # 測試專用旋鈕（不是給正式使用的功能）：
 #   SCAN_DISABLE_ABSPATH=1   跳過絕對路徑檢查
 #   SCAN_DISABLE_DENYLIST=1  跳過 denylist 檢查
+#   SCAN_DISABLE_SECRETS=1   跳過密碼／金鑰特徵檢查
 #   SCAN_DISABLE_DIRPRUNE=1  不跳過任何資料夾（連 .git 也掃）
-# 這三個旋鈕只給 test-scan.sh 做「拔除演練」用，正式使用不要設定它們。
+# 這四個旋鈕只給 test-scan.sh 做「拔除演練」用，正式使用不要設定它們。
+#
+# 🔴 它查三種東西，三種的把握程度不一樣，不要混為一談：
+#   1. 絕對路徑（你電腦上的使用者名稱）—— 形狀固定，抓得準。
+#   2. denylist —— 你自己列的字，列了就抓得到，沒列就抓不到。
+#   3. 密碼／金鑰特徵 —— **只抓得到長得像的那幾種**（見下方 SECRET_STRONG／WEAK）。
+#      一個你自己發明的格式、或一段被切成兩半拼起來的金鑰，它抓不到。
+#      ⇒ 它降低風險，不是保證乾淨。真正該做的是一開始就不要把秘密寫進檔案。
 
 set -u
 
@@ -34,7 +42,10 @@ DENYLIST_FILE="${2:-"$SCRIPT_DIR/denylist.txt"}"
 # 就**大聲失敗**（fail-closed），不准回報「乾淨」。
 # ---------------------------------------------------------------------------
 GREP=""
-for candidate in /usr/bin/grep /bin/grep; do
+# SCAN_GREP 是測試專用旋鈕（讓 test-scan.sh 餵一支「一定會回出錯」的假 grep，
+# 證明出錯時真的不會回報乾淨）。正式使用不要設定它。
+[ -n "${SCAN_GREP:-}" ] && GREP="$SCAN_GREP"
+[ -n "$GREP" ] || for candidate in /usr/bin/grep /bin/grep; do
   [ -x "$candidate" ] && { GREP="$candidate"; break; }
 done
 if [ -z "$GREP" ]; then
@@ -99,17 +110,31 @@ HITFILE="$(mktemp)"
 trap 'rm -f "$HITFILE"' EXIT
 
 HITS=0
+SCAN_ERROR=0
+
+# ---------------------------------------------------------------------------
+# 🔴 grep 回 0 是「找到了」、回 1 是「沒找到」、回 2 以上是「出錯了」。
+#    把 2 當成 1（沒找到）＝把「檢查壞了」講成「很乾淨」——這支腳本整個存在的理由
+#    就是不准那樣。實際踩過：有一條規則的開頭是連字號，grep 把它當成選項而回 2，
+#    整支檢查安靜地回報乾淨。所以①一律用 -e 餵規則，②回 2 就記下來，最後大聲失敗。
+# ---------------------------------------------------------------------------
+scan_one() {                   # scan_one <標籤> <檔案> <grep 額外選項…> -- <規則>
+  local label="$1" file="$2"; shift 2
+  "$GREP" "$@" "$file" >"$HITFILE" 2>/dev/null
+  local rc=$?
+  case "$rc" in
+    0) echo "[$label] $file"; sed 's/^/    /' "$HITFILE"; HITS=$((HITS + 1)) ;;
+    1) : ;;
+    *) echo "檢查 $file 時出錯（grep 回 $rc），這一份沒有答案。" >&2; SCAN_ERROR=1 ;;
+  esac
+  : >"$HITFILE"
+}
 
 # 1) 絕對路徑檢查：/home/<使用者>/... 或 /Users/<使用者>/...
 if [ "${SCAN_DISABLE_ABSPATH:-0}" != "1" ]; then
   while IFS= read -r -d '' f; do
     should_skip "$f" && continue
-    if "$GREP" -nE '/home/[A-Za-z0-9_.-]+|/Users/[A-Za-z0-9_.-]+' "$f" >"$HITFILE" 2>/dev/null; then
-      echo "[絕對路徑] $f"
-      sed 's/^/    /' "$HITFILE"
-      HITS=$((HITS + 1))
-    fi
-    : >"$HITFILE"
+    scan_one "絕對路徑" "$f" -nE -e '/home/[A-Za-z0-9_.-]+|/Users/[A-Za-z0-9_.-]+'
   done < <(list_files)
 fi
 
@@ -121,14 +146,56 @@ if [ "${SCAN_DISABLE_DENYLIST:-0}" != "1" ] && [ -f "$DENYLIST_FILE" ]; then
     case "$term" in \#*) continue ;; esac
     while IFS= read -r -d '' f; do
       should_skip "$f" && continue
-      if "$GREP" -ni -F "$term" "$f" >"$HITFILE" 2>/dev/null; then
-        echo "[denylist: $term] $f"
-        sed 's/^/    /' "$HITFILE"
-        HITS=$((HITS + 1))
-      fi
-      : >"$HITFILE"
+      scan_one "denylist: $term" "$f" -niF -e "$term"
     done < <(list_files)
   done < "$DENYLIST_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# 3) 密碼／金鑰特徵
+#
+# 分成兩組，理由是**誤報的代價不一樣**：
+#   STRONG — 只有真的金鑰才長這樣（私鑰開頭、AWS 的 AKIA、GitHub 的 ghp_…）。
+#            這一組不做任何「看起來像範例就放過」的例外，因為一個真金鑰裡剛好
+#            出現 example 這個字，不代表它不是真的。
+#   WEAK   — `password = 一串東西` 這種形狀。它很容易誤報（教學文件、.env.example、
+#            預設值都長這樣），而**一個什麼都擋的閘門會被使用者刪掉**——所以這一組
+#            會先把明顯是佔位符的那幾種放過（＿＿＿、xxx、your_、${VAR}、TODO…）。
+#
+# 🔴 這是刻意做的取捨，不是疏漏：WEAK 這組往「少擋一點」的方向偏。
+#    它換來的代價是 `password = hunter2example` 這種真密碼會被放過。
+# ---------------------------------------------------------------------------
+SECRET_STRONG='-----BEGIN[A-Z ]*PRIVATE KEY-----|(^|[^A-Za-z0-9])AKIA[0-9A-Z]{16}|(^|[^A-Za-z0-9])(sk|rk)-[A-Za-z0-9_-]{20,}|(^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}|(^|[^A-Za-z0-9])github_pat_[A-Za-z0-9_]{20,}|(^|[^A-Za-z0-9])xox[baprs]-[A-Za-z0-9-]{10,}|(^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}'
+SECRET_WEAK='(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)[[:space:]]*[=:][[:space:]]*["'"'"']?[^[:space:]"'"'"']{8,}'
+SECRET_PLACEHOLDER='＿|_{3,}|[xX]{3,}|\.\.\.|<|\$\{|\$[A-Za-z_]|[Yy]our[_-]|[Cc]hangeme|CHANGEME|[Ee]xample|EXAMPLE|placeholder|PLACEHOLDER|TODO|FIXME|請填|填入|process\.env|os\.environ|getenv|import\.meta\.env|\{\{'
+
+if [ "${SCAN_DISABLE_SECRETS:-0}" != "1" ]; then
+  while IFS= read -r -d '' f; do
+    should_skip "$f" && continue
+    scan_one "金鑰特徵" "$f" -nE -e "$SECRET_STRONG"
+    # WEAK 那組：命中之後再濾掉明顯的佔位符行
+    "$GREP" -niE -e "$SECRET_WEAK" "$f" >"$HITFILE" 2>/dev/null
+    WEAK_RC=$?
+    case "$WEAK_RC" in
+      0) if "$GREP" -vE -e "$SECRET_PLACEHOLDER" "$HITFILE" >"$HITFILE.keep" 2>/dev/null \
+           && [ -s "$HITFILE.keep" ]; then
+           echo "[疑似密碼] $f"
+           sed 's/^/    /' "$HITFILE.keep"
+           HITS=$((HITS + 1))
+         fi
+         rm -f "$HITFILE.keep" ;;
+      1) : ;;
+      *) echo "檢查 $f 的密碼形狀時出錯（grep 回 $WEAK_RC），這一份沒有答案。" >&2
+         SCAN_ERROR=1 ;;
+    esac
+    : >"$HITFILE"
+  done < <(list_files)
+fi
+
+# 🔴 出錯優先於「乾淨」報告：有任何一份檔案沒檢查完，就不准說乾淨。
+if [ "$SCAN_ERROR" != 0 ]; then
+  echo "有檔案沒有檢查完（上面有出錯訊息），刻意不回報乾淨。" >&2
+  exit 2
 fi
 
 if [ "$HITS" -gt 0 ]; then

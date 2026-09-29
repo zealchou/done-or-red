@@ -17,15 +17,21 @@
 
 set -u
 
-SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 TARGET="${1:-}"
 
 say() { echo "[done-or-red] $*"; }
 die() { echo "[done-or-red] ✗ $*" >&2; exit 1; }
 
+# 🔴 有步驟失敗卻照樣印「✓ 裝好了」＋回 0，是這支腳本第一版真的犯過的錯
+#    （在沒有 python3 的電腦上實測：九個步驟失敗、退出碼 0、訊息說裝好了）。
+#    所以現在每一個會失敗的動作都要走 fail()，收尾按這個數字決定退出碼。
+FAILED=0
+fail() { echo "[done-or-red] ✗ $*" >&2; FAILED=$((FAILED + 1)); }
+
 [ -n "$TARGET" ] || die "請告訴我要裝到哪個資料夾：bash scripts/install.sh /你的專案資料夾"
 [ -d "$TARGET" ] || die "找不到這個資料夾：$TARGET"
-TARGET="$(cd "$TARGET" && pwd)"
+TARGET="$(cd "$TARGET" && pwd -P)"
 [ "$TARGET" != "$SRC" ] || die "不要裝到這個包自己身上。請指定你自己的專案資料夾。"
 
 say "要裝到：$TARGET"
@@ -49,25 +55,26 @@ REPO_URL="https://github.com/zealchou/done-or-red/blob/main"
 #    這個缺陷是被這個包自己的閘門抓到的，不是想出來的。
 OWN_FILES="ACCEPTANCE_FIRST.md PROJECT_NOTEBOOK.md RULINGS.md DEFERRED_DEFECTS.md SKILL_CARD.md"
 
+# 🔴 這一段刻意只用 sed，不用 python3。理由不是潔癖：這個包自己的驗收條件寫著
+#    「不准新增任何外部依賴」，而第一版用了 python3——在沒有 python3 的電腦上，
+#    九個步驟會安靜地失敗，而它照樣印「裝好了」。要求使用者先裝 python3，
+#    對「完全沒有程式基礎」的人等於這個包不能用。
+# 🔴 它只改開頭是 ./ 或 ../ 的連結。開頭沒有點的相對連結（例：`](docs/x.md)`）
+#    它不動——那一種會被連結檢查抓到並要求你修，不會安靜壞掉。
 fix_links() {                  # fix_links <檔案>
   local f="$1"
-  python3 - "$f" "$REPO_URL" "$OWN_FILES" <<'PY'
-import re, sys, os
-path, base, own = sys.argv[1], sys.argv[2], set(sys.argv[3].split())
-s = open(path, encoding='utf-8').read()
-def repl(m):
-    target = m.group(1)
-    if re.match(r'^(https?:|mailto:|tel:|#)', target):
-        return m.group(0)
-    clean = target.split('#')[0]
-    name = os.path.basename(clean)
-    if name in own:                       # 他自己專案裡也會有這一份
-        return '](./%s)' % name
-    norm = os.path.normpath(clean).lstrip('./')
-    return '](%s/%s)' % (base, norm)
-s = re.sub(r'\]\(([^)]*)\)', repl, s)
-open(path, 'w', encoding='utf-8').write(s)
-PY
+  local t="$f.dor-tmp"
+  sed -e "s|](\.\./\.\./|]($REPO_URL/|g" \
+      -e "s|](\.\./|]($REPO_URL/|g" \
+      -e "s|](\./|]($REPO_URL/|g" "$f" >"$t" && mv "$t" "$f" || {
+    rm -f "$t"; return 1
+  }
+  local n
+  for n in $OWN_FILES; do      # 這幾份他自己專案裡也會有 ⇒ 指回同一層
+    sed "s|](\([^)]*/\)*$n|](./$n|g" "$f" >"$t" && mv "$t" "$f" || {
+      rm -f "$t"; return 1
+    }
+  done
 }
 
 place() {                      # place <目標相對路徑>
@@ -78,13 +85,12 @@ place() {                      # place <目標相對路徑>
     if grep -q 'done-or-red' "$dst" 2>/dev/null; then
       say "· $rel 已經裝過了，跳過"
     else
-      cp "$RULES_SRC" "$dst.done-or-red.md"
-      fix_links "$dst.done-or-red.md"
+      cp "$RULES_SRC" "$dst.done-or-red.md" && fix_links "$dst.done-or-red.md" \
+        || { fail "$rel.done-or-red.md 沒放成功"; return; }
       say "⚠ $rel 你已經有了，**沒有覆蓋**。新的放在 $rel.done-or-red.md，請把它的內容併進去"
     fi
   else
-    cp "$RULES_SRC" "$dst"
-    fix_links "$dst"
+    cp "$RULES_SRC" "$dst" && fix_links "$dst" || { fail "$rel 沒放成功"; return; }
     say "· 放好 $rel"
   fi
 }
@@ -101,38 +107,64 @@ for t in "$SRC"/templates/*.md; do
   if [ -e "$TARGET/docs/$b" ]; then
     say "· docs/$b 已存在，跳過（不覆蓋你寫過的內容）"
   else
-    cp "$t" "$TARGET/docs/$b"
-    fix_links "$TARGET/docs/$b"
+    cp "$t" "$TARGET/docs/$b" && fix_links "$TARGET/docs/$b" \
+      || { fail "docs/$b 沒放成功"; continue; }
     say "· 放好 docs/$b"
   fi
 done
 
 # ---------- 4. 自查工具 ----------
 mkdir -p "$TARGET/.done-or-red"
-for s in scan-for-real-content.sh check-links.sh denylist.txt; do
+for s in scan-for-real-content.sh check-links.sh; do
   [ -f "$SRC/scripts/$s" ] || die "找不到 $s，這個包不完整"
-  cp "$SRC/scripts/$s" "$TARGET/.done-or-red/$s"
+  cp "$SRC/scripts/$s" "$TARGET/.done-or-red/$s" || fail ".done-or-red/$s 沒放成功"
 done
-chmod +x "$TARGET/.done-or-red/scan-for-real-content.sh" "$TARGET/.done-or-red/check-links.sh"
+# 🔴 名單檔只在第一次放，之後絕不覆蓋。文件教使用者「把自己不想外流的名字加進去」，
+#    所以它是**使用者的內容**；再裝一次就把它蓋掉，等於把他的保護清單清空，
+#    而且畫面上看起來一切正常。上面兩支工具相反，那是我們的，覆蓋才拿得到修正。
+if [ -e "$TARGET/.done-or-red/denylist.txt" ]; then
+  say "· .done-or-red/denylist.txt 已存在，跳過（這是你自己的清單，不覆蓋）"
+else
+  cp "$SRC/scripts/denylist.txt" "$TARGET/.done-or-red/denylist.txt" \
+    || fail ".done-or-red/denylist.txt 沒放成功"
+fi
+chmod +x "$TARGET/.done-or-red/scan-for-real-content.sh" "$TARGET/.done-or-red/check-links.sh" \
+  2>/dev/null || fail "自查工具設不成可執行"
 say "· 放好兩支自查工具"
 
 # ---------- 5. 閘門 ----------
 HOOK_SRC="$SRC/scripts/hooks/pre-commit"
 [ -f "$HOOK_SRC" ] || die "找不到閘門檔：$HOOK_SRC"
-HOOK_DST="$TARGET/.git/hooks/pre-commit"
+# 🔴 閘門的資料夾不寫死 .git/hooks：用 worktree、submodule，或設過 core.hooksPath 的人，
+#    真正的位置不在那裡。寫死的話閘門會被放到一個 git 永遠不會去看的地方——
+#    而畫面上會說「閘門掛好了」。問 git 自己要位置。
+HOOK_DIR="$(cd "$TARGET" && git rev-parse --git-path hooks 2>/dev/null)"
+[ -n "$HOOK_DIR" ] || die "問不出這個專案的閘門資料夾在哪，沒有掛上閘門。"
+case "$HOOK_DIR" in /*) ;; *) HOOK_DIR="$TARGET/$HOOK_DIR" ;; esac
+mkdir -p "$HOOK_DIR" || die "建不出閘門資料夾 $HOOK_DIR"
+HOOK_DST="$HOOK_DIR/pre-commit"
 if [ -e "$HOOK_DST" ] && ! grep -q 'done-or-red' "$HOOK_DST" 2>/dev/null; then
-  cp "$HOOK_SRC" "$HOOK_DST.done-or-red"
-  chmod +x "$HOOK_DST.done-or-red"
+  cp "$HOOK_SRC" "$HOOK_DST.done-or-red" && chmod +x "$HOOK_DST.done-or-red" \
+    || fail "閘門的備份檔沒放成功"
   say "⚠ 你已經有一個閘門了，**沒有覆蓋**。新的放在 pre-commit.done-or-red，請把它併進去"
+  say "  ⚠ 也就是說：**現在閘門還沒有在執法**，要等你把它併進去才會。"
 else
-  cp "$HOOK_SRC" "$HOOK_DST"
-  chmod +x "$HOOK_DST"
-  say "· 閘門掛好了"
+  cp "$HOOK_SRC" "$HOOK_DST" && chmod +x "$HOOK_DST" || fail "閘門沒掛成功"
+  say "· 閘門掛好了（$HOOK_DST）"
+fi
+
+if [ "$FAILED" != 0 ]; then
+  echo "[done-or-red] ✗ 有 $FAILED 個步驟沒成功（上面標 ✗ 的那幾行）。" >&2
+  echo "[done-or-red] ✗ **這次沒有裝好，不要當成裝好了。** 把上面的錯誤解掉再跑一次。" >&2
+  exit 1
 fi
 
 say "✓ 裝好了。"
 say "現在起，你的 AI 每次要把改動存起來，都會先被檢查一次："
-say "  · 有沒有把密碼、金鑰、你電腦上的路徑寫進檔案（會擋下來）"
+say "  · 你電腦上的路徑、你自己列進名單的字（會擋下來）"
+say "  · 長得像金鑰的東西（私鑰、AWS／GitHub／Slack／Google 那幾種格式，會擋下來）"
+say '  · password = 一串東西 這種形狀（會擋下來；明顯是範例的會放過）'
 say "  · 文件裡的連結有沒有指到不存在的東西（會提醒，不擋）"
+say "🔴 它抓不到自己發明格式的秘密。它降低風險，不保證乾淨。"
 say "下一步：叫你的 AI 讀 docs/ACCEPTANCE_FIRST.md，跟你一起把「怎樣算做完」寫下來。"
 exit 0

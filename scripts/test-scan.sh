@@ -172,7 +172,8 @@ E1_OK=0
 if [ "$E_RC" = 0 ]; then
   E1_OK=1
   for f in CLAUDE.md AGENTS.md .github/copilot-instructions.md .cursor/rules/done-or-red.mdc \
-           docs/ACCEPTANCE_FIRST.md docs/PROJECT_NOTEBOOK.md .git/hooks/pre-commit; do
+           docs/ACCEPTANCE_FIRST.md docs/PROJECT_NOTEBOOK.md docs/RULINGS.md \
+           docs/DEFERRED_DEFECTS.md docs/SKILL_CARD.md .git/hooks/pre-commit; do
     [ -e "$E_HOME/$f" ] || { E1_OK=0; echo "  （E1 缺：$f）"; }
   done
 fi
@@ -227,6 +228,119 @@ check "樣本E4 失效方向：檢查工具讀不到時要由閘門擋下提交�
 #    一裝完就有 6 條幽靈連結——而且是被這個包自己的閘門在提交時抓到的。
 bash "$LINKER" "$E_HOME" >/dev/null 2>&1
 check "樣本E5 裝出來的成品：不准有指不到東西的連結" 0 $?
+
+# 🔴 E5 光看退出碼是**空綠**：安裝腳本把連結全部改成公開網址之後，裝出來的成品
+#    相對連結是 0 條，而「0 條相對連結，全部指得到」也是綠的——把六個來源檔清空
+#    一樣會綠，零證明力。所以要另外斷言「改寫真的發生過」。
+E5_REWRITTEN=$(grep -rl 'github.com/zealchou/done-or-red/blob/main' "$E_HOME" 2>/dev/null | wc -l | tr -d ' ')
+[ "${E5_REWRITTEN:-0}" -ge 3 ] && E5_COV=1 || E5_COV=0
+check "樣本E5 覆蓋：裝出來的檔案裡真的有被改寫過的連結（不是因為一條都沒有才全綠）" 1 "$E5_COV"
+
+# E6：先把髒的排進暫存、再把手上的檔案改乾淨 —— 不准放行（實測繞得過，已修）
+# 🔴 這是本批最嚴重的那個洞：閘門檢查「資料夾現在的樣子」而不是「要存進去的那一份」，
+#    所以資料夾看起來乾淨就放行，而版本紀錄裡存的是有密碼那一份。
+E6_OK=0
+if [ -d "$E_HOME/.git" ]; then
+  echo "設定檔在 /home/testuser/sneaky.json" >"$E_HOME/sneak.txt"
+  git -C "$E_HOME" add sneak.txt >/dev/null 2>&1
+  echo "已經改乾淨了。" >"$E_HOME/sneak.txt"      # 手上的檔案乾淨，暫存區是髒的
+  git -C "$E_HOME" commit -m "偷渡" >"$TMP/e6.log" 2>&1
+  E6_RC=$?
+  [ "$E6_RC" -ne 0 ] && grep -q '不該被存進版本紀錄' "$TMP/e6.log" && E6_OK=1
+  git -C "$E_HOME" rm -q -f --cached sneak.txt >/dev/null 2>&1
+  rm -f "$E_HOME/sneak.txt"
+fi
+check "樣本E6 偷渡：暫存的是髒的、手上的是乾淨的，仍然要被擋下" 1 "$E6_OK"
+
+# E7：檢查工具被清空（檔案還在、還跑得動、還回 0）—— 不准當成乾淨
+# 🔴 E4 管的是「讀不到」，這一條管的是「讀得到但被掏空」。兩者長得完全不一樣：
+#    一個空檔案被 bash 執行會安安靜靜回 0，於是閘門把它當成「檢查過很乾淨」。
+E7_OK=0
+if [ -f "$E_HOME/.done-or-red/scan-for-real-content.sh" ]; then
+  cp "$E_HOME/.done-or-red/scan-for-real-content.sh" "$TMP/scanner.bak"
+  echo "又一筆乾淨的文字。" >"$E_HOME/clean3.txt"
+  git -C "$E_HOME" add -A >/dev/null 2>&1
+  : >"$E_HOME/.done-or-red/scan-for-real-content.sh"      # 掏空，不是刪掉
+  git -C "$E_HOME" commit -m "掏空檢查工具" >"$TMP/e7.log" 2>&1
+  E7_RC=$?
+  cp "$TMP/scanner.bak" "$E_HOME/.done-or-red/scan-for-real-content.sh"
+  [ "$E7_RC" -ne 0 ] && grep -q '刻意不放行' "$TMP/e7.log" && E7_OK=1
+fi
+check "樣本E7 失效方向：檢查工具被掏空（回 0 但沒做事）時不准放行" 1 "$E7_OK"
+
+# E8：安裝腳本不准需要 python3
+# 🔴 這個包自己的驗收條件寫著「不准新增任何外部依賴」，而第一版用了 python3：
+#    在沒有 python3 的電腦上九個步驟失敗，它照樣印「✓ 裝好了」並回 0。
+#    做法是餵一個「一定會失敗的 python3」——還會用到它的話，安裝就會失敗。
+E8_HOME="$TMP/e8"; mkdir -p "$E8_HOME" "$TMP/nopy"
+printf '#!/bin/sh\nexit 127\n' >"$TMP/nopy/python3"
+printf '#!/bin/sh\nexit 127\n' >"$TMP/nopy/python"
+chmod +x "$TMP/nopy/python3" "$TMP/nopy/python"
+PATH="$TMP/nopy:$PATH" bash "$SCRIPT_DIR/install.sh" "$E8_HOME" >"$TMP/e8.log" 2>&1
+E8_RC=$?
+E8_FAILS="$(grep -c '✗' "$TMP/e8.log" 2>/dev/null || true)"
+if [ "$E8_RC" = 0 ] && [ "${E8_FAILS:-99}" = 0 ]; then E8_OK=1; else E8_OK=0; cat "$TMP/e8.log"; fi
+check "樣本E8 零依賴：python3 壞掉時安裝仍要整套成功（一個 ✗ 都不准有）" 1 "$E8_OK"
+
+# E9：再裝一次，不准把使用者自己的名單蓋掉
+# 🔴 文件教使用者「把自己不想外流的名字加進 denylist」，所以那是他的內容。
+#    第一版再裝一次就把它蓋回出貨版，畫面上一切正常，而他的保護清單被清空了。
+echo "MY-OWN-SECRET-WORD-FOR-TEST" >>"$E_HOME/.done-or-red/denylist.txt"
+bash "$INSTALLER" "$E_HOME" >"$TMP/e9.log" 2>&1
+grep -q 'MY-OWN-SECRET-WORD-FOR-TEST' "$E_HOME/.done-or-red/denylist.txt" && E9_OK=1 || E9_OK=0
+check "樣本E9 重裝：使用者自己加進名單的字不准被蓋掉" 1 "$E9_OK"
+
+# E10：有步驟失敗時，不准印「裝好了」也不准回 0
+# 🔴 第一版真的這樣：九個步驟失敗、訊息說「✓ 裝好了」、退出碼 0。
+#    做法是把工具資料夾改成寫不進去，逼一個步驟失敗。
+E10_HOME="$TMP/e10"; mkdir -p "$E10_HOME/.done-or-red"
+: >"$E10_HOME/.done-or-red/scan-for-real-content.sh"
+chmod 500 "$E10_HOME/.done-or-red"
+bash "$INSTALLER" "$E10_HOME" >"$TMP/e10.log" 2>&1
+E10_RC=$?
+chmod 755 "$E10_HOME/.done-or-red"
+if [ "$E10_RC" -ne 0 ] && ! grep -q '✓ 裝好了' "$TMP/e10.log"; then E10_OK=1; else E10_OK=0; fi
+check "樣本E10 誠實回報：有步驟失敗時要回非 0，而且不准說「裝好了」" 1 "$E10_OK"
+
+# ---------- 樣本 F：密碼／金鑰特徵，兩個方向都要量 ----------
+# 🔴 只測 F1 的話，「把每個檔案都當成有金鑰」也會滿分——而那種閘門會被使用者刪掉。
+F_DIR="$TMP/secret"; mkdir -p "$F_DIR"
+printf 'AKIAIOSFODNN7EXAMPLE1\n'                 >"$F_DIR/a.txt"
+printf -- '-----BEGIN RSA PRIVATE KEY-----\n'    >"$F_DIR/b.txt"
+printf 'k = ghp_abcdefghijklmnopqrstuvwxyz12\n'  >"$F_DIR/c.txt"
+printf 'x = xoxb-1234567890-abcdefgh\n'          >"$F_DIR/d.txt"
+printf 'password = hunter2supersecret\n'         >"$F_DIR/e.txt"
+F1_OUT="$(bash "$SCANNER" "$F_DIR" "$SCRIPT_DIR/denylist.txt" 2>&1)"
+check "樣本F1 正向：五種金鑰／密碼形狀要被抓到（紅）" 1 $?
+F1_HITS="$(printf '%s' "$F1_OUT" | sed -n 's/^掃描結果：命中 \([0-9]*\) 筆.*/\1/p')"
+check "樣本F1 筆數：五個檔案要報 5 筆，少報就是斷言太鬆" 5 "${F1_HITS:-0}"
+
+rm -f "$F_DIR"/*.txt
+printf 'API_KEY=\nDB_PASSWORD=${DB_PASSWORD}\n'  >"$F_DIR/f.txt"
+printf 'password = your_password_here\n'         >"$F_DIR/g.txt"
+printf 'token: ＿＿＿＿＿＿＿＿\n'                >"$F_DIR/h.txt"
+printf 'const key = process.env.API_KEY\n'       >"$F_DIR/i.txt"
+printf '不要把密碼、金鑰寫進檔案裡。\n'           >"$F_DIR/j.txt"
+bash "$SCANNER" "$F_DIR" "$SCRIPT_DIR/denylist.txt" >/dev/null 2>&1
+check "樣本F2 反向：空值、佔位符、環境變數、教學句子，一筆都不准報（綠）" 0 $?
+
+# F3：搜尋工具本身出錯時不准回報乾淨（失效方向）
+# 🔴 這一條補的是一個真的犯過的錯：金鑰規則開頭是連字號，搜尋工具把它當成選項而
+#    回「出錯」，而程式把「出錯」當成「沒找到」——整支檢查安靜地回報乾淨。
+F3_DIR="$TMP/greperr"; mkdir -p "$F3_DIR"
+echo "一行普通文字" >"$F3_DIR/x.txt"
+# 🔴 實測記錄：這一條被**兩處**程式碼守著（scan_one 裡一處、密碼那組裡一處），
+#    所以只砍一處的拔除演練會得到 0 紅——那不代表這條測試是裝飾品，代表刀不夠。
+#    兩處一起砍才恰好紅 1 條。數紅的時候要知道這件事，不要急著改預期數字去對答案。
+printf '#!/bin/sh\nexit 2\n' >"$TMP/fakegrep"; chmod +x "$TMP/fakegrep"
+SCAN_GREP="$TMP/fakegrep" bash "$SCANNER" "$F3_DIR" "$SCRIPT_DIR/denylist.txt" >/dev/null 2>&1
+check "樣本F3 失效方向：搜尋工具回「出錯」時要回 2，不准回 0 說乾淨" 2 $?
+
+# F3b 反向：同一支假 grep 改成「乾淨地回沒找到」時，就該正常放行——
+# 證明 F3 紅的原因是「出錯」，不是「換了一支 grep」。
+printf '#!/bin/sh\nexit 1\n' >"$TMP/fakegrep_clean"; chmod +x "$TMP/fakegrep_clean"
+SCAN_GREP="$TMP/fakegrep_clean" bash "$SCANNER" "$F3_DIR" "$SCRIPT_DIR/denylist.txt" >/dev/null 2>&1
+check "樣本F3b 對照：同一支假工具回「沒找到」時要正常放行（證明剛才紅的是出錯，不是換工具）" 0 $?
 
 echo "----"
 echo "通過 $PASS / 失敗 $FAIL"
