@@ -211,13 +211,13 @@ check "樣本E3 反向：乾淨的提交不准被誤擋（0）" 0 $?
 #   ⇒ 兩個修法都必要：①先排好暫存再鎖檔，別讓鎖檔影響排檔
 #                    ②斷言改成認閘門**拒絕時才會講的那句話**，不是任何一個記號
 E4_OK=0
-if [ -f "$E_HOME/.done-or-red/scan-for-real-content.sh" ]; then
+if [ -f "$E_HOME/.git/done-or-red/scan-for-real-content.sh" ]; then
   echo "再一筆乾淨的文字。" >"$E_HOME/clean2.txt"
   git -C "$E_HOME" add -A >/dev/null 2>&1          # 先排好，再鎖
-  chmod 000 "$E_HOME/.done-or-red/scan-for-real-content.sh"
+  chmod 000 "$E_HOME/.git/done-or-red/scan-for-real-content.sh"
   git -C "$E_HOME" commit -m "檢查壞掉時" >"$TMP/e4.log" 2>&1
   E4_RC=$?
-  chmod 644 "$E_HOME/.done-or-red/scan-for-real-content.sh"
+  chmod 644 "$E_HOME/.git/done-or-red/scan-for-real-content.sh"
   if [ "$E4_RC" -ne 0 ] && grep -q '刻意不放行' "$TMP/e4.log"; then E4_OK=1; fi
 fi
 check "樣本E4 失效方向：檢查工具讀不到時要由閘門擋下提交，不准放行" 1 "$E4_OK"
@@ -256,14 +256,14 @@ check "樣本E6 偷渡：暫存的是髒的、手上的是乾淨的，仍然要�
 # 🔴 E4 管的是「讀不到」，這一條管的是「讀得到但被掏空」。兩者長得完全不一樣：
 #    一個空檔案被 bash 執行會安安靜靜回 0，於是閘門把它當成「檢查過很乾淨」。
 E7_OK=0
-if [ -f "$E_HOME/.done-or-red/scan-for-real-content.sh" ]; then
-  cp "$E_HOME/.done-or-red/scan-for-real-content.sh" "$TMP/scanner.bak"
+if [ -f "$E_HOME/.git/done-or-red/scan-for-real-content.sh" ]; then
+  cp "$E_HOME/.git/done-or-red/scan-for-real-content.sh" "$TMP/scanner.bak"
   echo "又一筆乾淨的文字。" >"$E_HOME/clean3.txt"
   git -C "$E_HOME" add -A >/dev/null 2>&1
-  : >"$E_HOME/.done-or-red/scan-for-real-content.sh"      # 掏空，不是刪掉
+  : >"$E_HOME/.git/done-or-red/scan-for-real-content.sh"      # 掏空，不是刪掉
   git -C "$E_HOME" commit -m "掏空檢查工具" >"$TMP/e7.log" 2>&1
   E7_RC=$?
-  cp "$TMP/scanner.bak" "$E_HOME/.done-or-red/scan-for-real-content.sh"
+  cp "$TMP/scanner.bak" "$E_HOME/.git/done-or-red/scan-for-real-content.sh"
   [ "$E7_RC" -ne 0 ] && grep -q '刻意不放行' "$TMP/e7.log" && E7_OK=1
 fi
 check "樣本E7 失效方向：檢查工具被掏空（回 0 但沒做事）時不准放行" 1 "$E7_OK"
@@ -285,22 +285,98 @@ check "樣本E8 零依賴：python3 壞掉時安裝仍要整套成功（一個 �
 # E9：再裝一次，不准把使用者自己的名單蓋掉
 # 🔴 文件教使用者「把自己不想外流的名字加進 denylist」，所以那是他的內容。
 #    第一版再裝一次就把它蓋回出貨版，畫面上一切正常，而他的保護清單被清空了。
-echo "MY-OWN-SECRET-WORD-FOR-TEST" >>"$E_HOME/.done-or-red/denylist.txt"
+echo "MY-OWN-SECRET-WORD-FOR-TEST" >>"$E_HOME/.git/done-or-red/denylist.txt"
 bash "$INSTALLER" "$E_HOME" >"$TMP/e9.log" 2>&1
-grep -q 'MY-OWN-SECRET-WORD-FOR-TEST' "$E_HOME/.done-or-red/denylist.txt" && E9_OK=1 || E9_OK=0
+grep -q 'MY-OWN-SECRET-WORD-FOR-TEST' "$E_HOME/.git/done-or-red/denylist.txt" && E9_OK=1 || E9_OK=0
 check "樣本E9 重裝：使用者自己加進名單的字不准被蓋掉" 1 "$E9_OK"
 
 # E10：有步驟失敗時，不准印「裝好了」也不准回 0
 # 🔴 第一版真的這樣：九個步驟失敗、訊息說「✓ 裝好了」、退出碼 0。
 #    做法是把工具資料夾改成寫不進去，逼一個步驟失敗。
-E10_HOME="$TMP/e10"; mkdir -p "$E10_HOME/.done-or-red"
-: >"$E10_HOME/.done-or-red/scan-for-real-content.sh"
-chmod 500 "$E10_HOME/.done-or-red"
+E10_HOME="$TMP/e10"; mkdir -p "$E10_HOME/.git/done-or-red"
+: >"$E10_HOME/.git/done-or-red/scan-for-real-content.sh"
+chmod 500 "$E10_HOME/.git/done-or-red"
 bash "$INSTALLER" "$E10_HOME" >"$TMP/e10.log" 2>&1
 E10_RC=$?
-chmod 755 "$E10_HOME/.done-or-red"
+chmod 755 "$E10_HOME/.git/done-or-red"
 if [ "$E10_RC" -ne 0 ] && ! grep -q '✓ 裝好了' "$TMP/e10.log"; then E10_OK=1; else E10_OK=0; fi
 check "樣本E10 誠實回報：有步驟失敗時要回非 0，而且不准說「裝好了」" 1 "$E10_OK"
+
+# E11：使用者的私密名單與檢查工具，版本控制必須看不到
+# 🔴 這是三輪覆核裡最難堪的一條：上一版把它們放在專案資料夾裡，於是
+#    ①一次「順手把全部改動存起來」就把使用者的私密名單推上公開倉庫
+#      （而掃描器按檔名跳過它，所以它自己絕對發現不了）
+#    ②一個**空白**的檢查工具可以被存進版本紀錄，別人抓下來等於沒有保護
+#    修法不是補洞，是搬到版本控制內部資料夾——搬完之後這兩件事**結構上做不到**。
+E11_OK=0
+if [ -d "$E_HOME/.git/done-or-red" ]; then
+  echo "CLIENT-PRIVATE-NAME-7788" >>"$E_HOME/.git/done-or-red/denylist.txt"
+  git -C "$E_HOME" add -A >/dev/null 2>&1
+  git -C "$E_HOME" commit -m "順手全部存起來" >/dev/null 2>&1
+  E11_TRACKED="$(git -C "$E_HOME" ls-files | grep -cE 'denylist|scan-for-real|check-links' || true)"
+  E11_INHIST="$(git -C "$E_HOME" grep -c 'CLIENT-PRIVATE-NAME-7788' HEAD 2>/dev/null || echo 0)"
+  E11_CONTROL="$(git -C "$E_HOME" ls-files | grep -c 'CLAUDE.md' || true)"
+  # 三個條件：工具沒被追蹤、私密字沒進紀錄、而且陽性對照（規則檔）真的有被追蹤
+  if [ "${E11_TRACKED:-9}" = 0 ] && [ "${E11_INHIST:-9}" = 0 ] && [ "${E11_CONTROL:-0}" -ge 1 ]; then
+    E11_OK=1
+  fi
+fi
+check "樣本E11 結構：私密名單與檢查工具不准被版本控制看到（含陽性對照）" 1 "$E11_OK"
+
+# E12：已經有別人的閘門時，不准說「裝好了」，也不准蓋掉他的
+# 🔴 上一版用「內容裡有沒有出現 done-or-red 這個字」判斷閘門是不是我們的。
+#    實測兩個洞：別人的閘門被當成我們的而覆蓋掉；以及沒接上線卻印「✓ 裝好了」回 0，
+#    使用者完全沒有保護而畫面上一切正常。**「裝了但沒在執法」是最危險的狀態。**
+E12_HOME="$TMP/e12"; mkdir -p "$E12_HOME"
+git -C "$E12_HOME" init -q 2>/dev/null
+E12_HOOKDIR="$(cd "$E12_HOME" && git rev-parse --git-path hooks 2>/dev/null)"
+case "$E12_HOOKDIR" in /*) ;; *) E12_HOOKDIR="$E12_HOME/$E12_HOOKDIR" ;; esac
+mkdir -p "$E12_HOOKDIR"
+printf '#!/bin/sh\necho OTHER-HOOK-LOGIC\nexit 0\n' >"$E12_HOOKDIR/pre-commit"
+chmod +x "$E12_HOOKDIR/pre-commit"
+bash "$INSTALLER" "$E12_HOME" >"$TMP/e12.log" 2>&1
+E12_RC=$?
+E12_SAYS_OK="$(grep -c '✓ 裝好了' "$TMP/e12.log" || true)"
+grep -q 'OTHER-HOOK-LOGIC' "$E12_HOOKDIR/pre-commit" && E12_KEPT=1 || E12_KEPT=0
+if [ "$E12_RC" -ne 0 ] && [ "${E12_SAYS_OK:-9}" = 0 ] && [ "$E12_KEPT" = 1 ]; then E12_OK=1; else E12_OK=0; fi
+check "樣本E12 誠實：閘門沒接上線時不准說「裝好了」，而且不准蓋掉別人的閘門" 1 "$E12_OK"
+
+# E12b：**併過的閘門**不准被重裝蓋掉
+# 🔴 這一條是拔除演練逼出來的：把身分判斷改回「內容裡有沒有出現 done-or-red」時，
+#    E12 竟然 0 紅——因為 E12 用的是一個「完全不相關」的閘門，兩種判斷法對它的行為一樣。
+#    真正分得出差別的是**使用者照我們的指示把兩邊併在一起**之後：那份閘門裡有我們的字樣，
+#    字串比對會把它當成純出貨版而整個蓋掉，他自己的邏輯就消失了。
+#    0 紅的第一個嫌疑人是刀，但這一次查下去是**測試的覆蓋有洞**，不是刀壞了。
+E12B_HOME="$TMP/e12b"; mkdir -p "$E12B_HOME"
+git -C "$E12B_HOME" init -q 2>/dev/null
+E12B_HOOKDIR="$(cd "$E12B_HOME" && git rev-parse --git-path hooks 2>/dev/null)"
+case "$E12B_HOOKDIR" in /*) ;; *) E12B_HOOKDIR="$E12B_HOME/$E12B_HOOKDIR" ;; esac
+mkdir -p "$E12B_HOOKDIR"
+{ cat "$SCRIPT_DIR/hooks/pre-commit"; printf '\n# 使用者自己加的\necho MY-OWN-MERGED-LOGIC\n'; } \
+  >"$E12B_HOOKDIR/pre-commit"
+chmod +x "$E12B_HOOKDIR/pre-commit"
+bash "$INSTALLER" "$E12B_HOME" >"$TMP/e12b.log" 2>&1
+grep -q 'MY-OWN-MERGED-LOGIC' "$E12B_HOOKDIR/pre-commit" && E12B_OK=1 || E12B_OK=0
+check "樣本E12b 併過的閘門：重裝不准把使用者自己加的邏輯蓋掉" 1 "$E12B_OK"
+
+# E13：掃描工具自己的內部失敗，不准被講成「乾淨」
+# 🔴 這是「沒檢查跟檢查過很乾淨長得一樣」的第三、第四個版本。前兩個是
+#    搜尋工具回出錯、檢查工具被掏空；這兩個是暫存檔建不出來、列舉檔案失敗。
+#    同一種病第四次出現 ⇒ 改掉寫法（先把清單寫成檔案並確認成功），不是再補一個洞。
+E13_DIR="$TMP/e13"; mkdir -p "$E13_DIR" "$TMP/e13bin"
+echo "路徑 /home/testuser/inner.json" >"$E13_DIR/leak.txt"
+printf '#!/bin/sh\nexit 1\n' >"$TMP/e13bin/mktemp"; chmod +x "$TMP/e13bin/mktemp"
+PATH="$TMP/e13bin:$PATH" bash "$SCANNER" "$E13_DIR" "$SCRIPT_DIR/denylist.txt" >/dev/null 2>&1
+check "樣本E13a 失效方向：暫存檔建不出來時要回 2，不准回 0 說乾淨" 2 $?
+rm -f "$TMP/e13bin/mktemp"
+printf '#!/bin/sh\nexit 2\n' >"$TMP/e13bin/find"; chmod +x "$TMP/e13bin/find"
+PATH="$TMP/e13bin:$PATH" bash "$SCANNER" "$E13_DIR" "$SCRIPT_DIR/denylist.txt" >/dev/null 2>&1
+check "樣本E13b 失效方向：列舉檔案失敗時要回 2，不准回 0 說乾淨" 2 $?
+rm -f "$TMP/e13bin/find"
+# E13c 對照：同樣的環境下，工具正常時要抓到那筆洩漏——證明 E13 紅的是「內部壞掉」，
+# 不是「因為換了 PATH 所以什麼都掃不到」。
+PATH="$TMP/e13bin:$PATH" bash "$SCANNER" "$E13_DIR" "$SCRIPT_DIR/denylist.txt" >/dev/null 2>&1
+check "樣本E13c 對照：工具正常時同一份洩漏要被抓到（回 1）" 1 $?
 
 # ---------- 樣本 F：密碼／金鑰特徵，兩個方向都要量 ----------
 # 🔴 只測 F1 的話，「把每個檔案都當成有金鑰」也會滿分——而那種閘門會被使用者刪掉。
@@ -309,11 +385,10 @@ printf 'AKIAIOSFODNN7EXAMPLE1\n'                 >"$F_DIR/a.txt"
 printf -- '-----BEGIN RSA PRIVATE KEY-----\n'    >"$F_DIR/b.txt"
 printf 'k = ghp_abcdefghijklmnopqrstuvwxyz12\n'  >"$F_DIR/c.txt"
 printf 'x = xoxb-1234567890-abcdefgh\n'          >"$F_DIR/d.txt"
-printf 'password = hunter2supersecret\n'         >"$F_DIR/e.txt"
 F1_OUT="$(bash "$SCANNER" "$F_DIR" "$SCRIPT_DIR/denylist.txt" 2>&1)"
-check "樣本F1 正向：五種金鑰／密碼形狀要被抓到（紅）" 1 $?
+check "樣本F1 正向：四種金鑰形狀要被抓到（紅）" 1 $?
 F1_HITS="$(printf '%s' "$F1_OUT" | sed -n 's/^掃描結果：命中 \([0-9]*\) 筆.*/\1/p')"
-check "樣本F1 筆數：五個檔案要報 5 筆，少報就是斷言太鬆" 5 "${F1_HITS:-0}"
+check "樣本F1 筆數：四個檔案要報 4 筆，少報就是斷言太鬆" 4 "${F1_HITS:-0}"
 
 rm -f "$F_DIR"/*.txt
 printf 'API_KEY=\nDB_PASSWORD=${DB_PASSWORD}\n'  >"$F_DIR/f.txt"
@@ -323,6 +398,47 @@ printf 'const key = process.env.API_KEY\n'       >"$F_DIR/i.txt"
 printf '不要把密碼、金鑰寫進檔案裡。\n'           >"$F_DIR/j.txt"
 bash "$SCANNER" "$F_DIR" "$SCRIPT_DIR/denylist.txt" >/dev/null 2>&1
 check "樣本F2 反向：空值、佔位符、環境變數、教學句子，一筆都不准報（綠）" 0 $?
+
+# 🔴 F2b：**誠實記錄一個刻意放過的東西。**
+#    `password = 一串你自己想的字` 抓不到，而且是刻意的。
+#    上一版有一條規則在抓它，三輪覆核各生一個新洞（註解整行豁免、值裡有空白抓不到、
+#    誤擋真的 .env.example），因為「這串字是真密碼還是教學範例」是判斷題。
+#    ⇒ 規則整組刪掉，改用下面 F4 那條不需要判斷的檔名規則。
+#    這一條測試存在的理由是：**讓這個限制被寫死，不要有人以為它被擋住。**
+rm -f "$F_DIR"/*.txt
+printf 'password = hunter2supersecret\n' >"$F_DIR/k.txt"
+bash "$SCANNER" "$F_DIR" "$SCRIPT_DIR/denylist.txt" >/dev/null 2>&1
+check "樣本F2b 誠實：自己想的密碼字串刻意抓不到（如果這條變紅，代表有人又加了判斷規則）" 0 $?
+
+# ---------- 樣本 F4：檔名規則（取代被刪掉的密碼規則） ----------
+# 🔴 這條規則不看內容、只看名字，所以沒有「這是真密碼還是範例」的判斷空間。
+#    它擋的是新手最常犯、代價最大的那一個錯：把真的 .env 或私鑰檔存進版本紀錄。
+F4_DIR="$TMP/badnames"; mkdir -p "$F4_DIR"
+for n in .env .env.production credentials.json id_rsa server.pem api.key .netrc; do
+  echo "內容" >"$F4_DIR/$n"
+done
+F4_OUT="$(bash "$SCANNER" "$F4_DIR" "$SCRIPT_DIR/denylist.txt" 2>&1)"
+check "樣本F4 正向：七種「本身就是密碼檔」的檔名要被擋（紅）" 1 $?
+F4_HITS="$(printf '%s' "$F4_OUT" | sed -n 's/^掃描結果：命中 \([0-9]*\) 筆.*/\1/p')"
+check "樣本F4 筆數：七個檔案要報 7 筆" 7 "${F4_HITS:-0}"
+
+# F4b 反向：範本檔本來就該進版本紀錄，一筆都不准報。
+# 🔴 這一邊比正向更重要：誤擋 .env.example 等於在罰使用者做對的事，
+#    而那種閘門的結局是被刪掉。
+rm -f "$F4_DIR"/* "$F4_DIR"/.[a-zA-Z]*
+for n in .env.example .env.sample config.template docker-compose.yml README.md app.js; do
+  echo "DB_PASSWORD=localdev123" >"$F4_DIR/$n"
+done
+bash "$SCANNER" "$F4_DIR" "$SCRIPT_DIR/denylist.txt" >/dev/null 2>&1
+check "樣本F4b 反向：範本與普通程式檔一筆都不准報（綠）" 0 $?
+
+# F4c 拔除演練的落點：關掉整組檢查，F4 正向要變綠（證明剛才是這條在擋）
+SCAN_DISABLE_SECRETS=1 bash "$SCANNER" "$TMP/badnames" "$SCRIPT_DIR/denylist.txt" >/dev/null 2>&1
+F4C_RC=$?
+rm -f "$F4_DIR"/* "$F4_DIR"/.[a-zA-Z]* 2>/dev/null
+for n in .env id_rsa; do echo "內容" >"$F4_DIR/$n"; done
+SCAN_DISABLE_SECRETS=1 bash "$SCANNER" "$F4_DIR" "$SCRIPT_DIR/denylist.txt" >/dev/null 2>&1
+check "樣本F4c 拔除演練：關掉這組檢查後，危險檔名應變成放行" 0 $?
 
 # F3：搜尋工具本身出錯時不准回報乾淨（失效方向）
 # 🔴 這一條補的是一個真的犯過的錯：金鑰規則開頭是連字號，搜尋工具把它當成選項而

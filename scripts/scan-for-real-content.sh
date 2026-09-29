@@ -89,9 +89,32 @@ if [ "${SCAN_DISABLE_DIRPRUNE:-0}" != "1" ] && [ -n "${EXCLUDE_DIRS[*]+x}" ]; th
   [ "$first" = 1 ] && PRUNE_ARGS=()   # 清單其實是空的 ⇒ 不加任何排除
 fi
 
-# 列出要掃的檔案（唯一的檔案來源，兩個檢查共用，避免兩邊的範圍走鐘）
+# ---------------------------------------------------------------------------
+# 列出要掃的檔案（唯一的檔案來源，三個檢查共用，避免各自的範圍走鐘）
+#
+# 🔴 這裡刻意**先把清單寫進一個檔案、確認 find 成功了才開始掃**。
+#    原本是邊掃邊列（`while … < <(find …)`），而那個寫法會把 find 的失敗吃掉：
+#    列舉檔案失敗 ⇒ 一個檔案都沒掃到 ⇒ 最後印「命中 0 筆，乾淨」。
+#    實測 find 回 2 的時候，整支腳本回 0 並回報乾淨。
+#    **這是「沒檢查」跟「檢查過很乾淨」長得一樣的第三個版本**（前兩個是
+#    grep 回出錯、檢查工具被掏空）。同一種病第三次 ⇒ 不是補洞，是改掉寫法。
+# ---------------------------------------------------------------------------
+FILELIST=""
+build_filelist() {
+  FILELIST="$(mktemp)" || {
+    echo "建不出暫存清單檔，無法列舉要檢查的檔案。刻意不回報乾淨。" >&2
+    exit 2
+  }
+  find "$SCAN_ROOT" ${PRUNE_ARGS[@]+"${PRUNE_ARGS[@]}"} -type f -print0 >"$FILELIST"
+  local rc=$?
+  if [ "$rc" != 0 ]; then
+    echo "列舉檔案失敗（find 回 $rc），無法完整檢查。刻意不回報乾淨。" >&2
+    exit 2
+  fi
+}
+
 list_files() {
-  find "$SCAN_ROOT" ${PRUNE_ARGS[@]+"${PRUNE_ARGS[@]}"} -type f -print0
+  cat "$FILELIST"
 }
 
 should_skip() {
@@ -106,8 +129,15 @@ should_skip() {
 
 # 命中暫存檔放在 mktemp 給的安全位置（原本寫死 /tmp/.scan-hit.$$，在唯讀或沒有 /tmp
 # 的環境會壞，而且 $$ 可預測）。離場時一定清掉。
-HITFILE="$(mktemp)"
-trap 'rm -f "$HITFILE"' EXIT
+# 🔴 mktemp 也會失敗（磁碟滿、暫存目錄唯讀、TMPDIR 指到不存在的地方）。
+#    不檢查的話後面每一次寫入都失敗，而每一次「寫不進去」都長得像「沒有命中」——
+#    最後印「命中 0 筆，乾淨」。實測確實如此。
+HITFILE="$(mktemp)" || {
+  echo "建不出暫存檔，無法執行檢查。刻意不回報乾淨。" >&2
+  exit 2
+}
+trap 'rm -f "$HITFILE" "$HITFILE.keep" "$FILELIST"' EXIT
+build_filelist
 
 HITS=0
 SCAN_ERROR=0
@@ -166,29 +196,42 @@ fi
 #    它換來的代價是 `password = hunter2example` 這種真密碼會被放過。
 # ---------------------------------------------------------------------------
 SECRET_STRONG='-----BEGIN[A-Z ]*PRIVATE KEY-----|(^|[^A-Za-z0-9])AKIA[0-9A-Z]{16}|(^|[^A-Za-z0-9])(sk|rk)-[A-Za-z0-9_-]{20,}|(^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}|(^|[^A-Za-z0-9])github_pat_[A-Za-z0-9_]{20,}|(^|[^A-Za-z0-9])xox[baprs]-[A-Za-z0-9-]{10,}|(^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}'
-SECRET_WEAK='(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)[[:space:]]*[=:][[:space:]]*["'"'"']?[^[:space:]"'"'"']{8,}'
-SECRET_PLACEHOLDER='＿|_{3,}|[xX]{3,}|\.\.\.|<|\$\{|\$[A-Za-z_]|[Yy]our[_-]|[Cc]hangeme|CHANGEME|[Ee]xample|EXAMPLE|placeholder|PLACEHOLDER|TODO|FIXME|請填|填入|process\.env|os\.environ|getenv|import\.meta\.env|\{\{'
+
+# ---------------------------------------------------------------------------
+# 🔴 刪掉的那一條規則，以及為什麼刪（這一段不要當成廢話刪掉）
+#
+# 上一版有第二組規則：抓 `password = 一串東西` 這種形狀，再用一張「看起來像範例」
+# 的清單把誤報濾掉。獨立覆核三輪，那一條規則每一輪都生出一個新洞：
+#   · `password=真密碼 # TODO rotate` —— 註解讓整行被當成範例，放行
+#   · `password="correct horse battery staple"` —— 值裡有空白，根本沒被抓到
+#   · `.env.example` 裡的 `DB_PASSWORD=localdev123` —— 誤擋，而那是正確做法的範本
+# **兩個方向同時錯**：該擋的放過、不該擋的擋住。
+#
+# 根因不是規則寫得不夠好，是**「這串字是真密碼還是教學範例」本身是判斷題**，
+# 而一條正規表達式沒有判斷力。每多寫一條判斷規則，就是多一個新缺陷。
+# ⇒ 刪掉整組，改成下面這條**不需要判斷**的：看檔名。
+#
+# 判準：**你正在寫的是一條「機械規則」，還是一個「判斷」？**
+#       如果它需要知道作者的意圖，那是判斷，不要寫進腳本。
+# ---------------------------------------------------------------------------
+
+# 這些檔名本身就不該進版本紀錄——不看內容，只看名字，所以沒有誤判內容的空間。
+SECRET_FILENAME='^(\.env|\.env\..*|\.envrc|\.netrc|\.npmrc|\.pgpass|\.htpasswd|credentials|credentials\.json|service-account\.json|id_rsa|id_dsa|id_ecdsa|id_ed25519|.*\.pem|.*\.pfx|.*\.p12|.*\.key|.*\.keystore|.*\.jks)$'
+# 這幾種是**範本**，本來就該進版本紀錄（它是教別人怎麼設定的那一份）。
+SECRET_FILENAME_OK='\.(example|sample|template|dist|md|txt)$'
 
 if [ "${SCAN_DISABLE_SECRETS:-0}" != "1" ]; then
   while IFS= read -r -d '' f; do
     should_skip "$f" && continue
     scan_one "金鑰特徵" "$f" -nE -e "$SECRET_STRONG"
-    # WEAK 那組：命中之後再濾掉明顯的佔位符行
-    "$GREP" -niE -e "$SECRET_WEAK" "$f" >"$HITFILE" 2>/dev/null
-    WEAK_RC=$?
-    case "$WEAK_RC" in
-      0) if "$GREP" -vE -e "$SECRET_PLACEHOLDER" "$HITFILE" >"$HITFILE.keep" 2>/dev/null \
-           && [ -s "$HITFILE.keep" ]; then
-           echo "[疑似密碼] $f"
-           sed 's/^/    /' "$HITFILE.keep"
-           HITS=$((HITS + 1))
-         fi
-         rm -f "$HITFILE.keep" ;;
-      1) : ;;
-      *) echo "檢查 $f 的密碼形狀時出錯（grep 回 $WEAK_RC），這一份沒有答案。" >&2
-         SCAN_ERROR=1 ;;
-    esac
-    : >"$HITFILE"
+    base="$(basename "$f")"
+    if printf '%s' "$base" | "$GREP" -qiE -e "$SECRET_FILENAME" 2>/dev/null \
+       && ! printf '%s' "$base" | "$GREP" -qiE -e "$SECRET_FILENAME_OK" 2>/dev/null; then
+      echo "[這種檔案不要進版本紀錄] $f"
+      echo "    檔名是 $base —— 這一類檔案裝的就是密碼、金鑰或憑證。"
+      echo "    做法：把它加進 .gitignore，只把 $base.example（不含真值）存進版本紀錄。"
+      HITS=$((HITS + 1))
+    fi
   done < <(list_files)
 fi
 

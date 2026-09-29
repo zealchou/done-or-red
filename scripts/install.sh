@@ -113,24 +113,52 @@ for t in "$SRC"/templates/*.md; do
   fi
 done
 
-# ---------- 4. 自查工具 ----------
-mkdir -p "$TARGET/.done-or-red"
+# ---------- 4. 自查工具與你的私密名單 ----------
+# 🔴 這些東西**刻意不放在你的專案資料夾裡**，而是放進版本控制自己的內部資料夾。
+#    理由是實測出來的，不是設計潔癖——上一版放在 `.done-or-red/` 時有兩個真的洞：
+#
+#    洞一：你的私密名單（裡面是你不想外流的客戶名、專案代號）會被一次
+#          「順手把全部改動存起來」帶進版本紀錄，然後跟著推上公開倉庫。
+#          **一個防外流的工具，自己把你最敏感的那張清單外流了。**
+#          而且掃描器按檔名跳過它，所以它自己絕對不會發現。
+#
+#    洞二：檢查工具本身放在專案裡，就可以被存進版本紀錄。實測把一個
+#          **空白版本**排進暫存區，閘門放行，於是版本紀錄裡的檢查工具是 0 位元組——
+#          別人把你的專案抓下來，等於完全沒有保護，而畫面上一切正常。
+#
+#    共同根因：**閘門用「它正在檢查的那個資料夾裡的東西」來證明自己是好的。**
+#    版本控制的內部資料夾永遠不會被存進版本紀錄，所以搬進去之後，
+#    上面兩個洞都不是「修好了」，是**結構上不可能發生**。
+#
+#    代價（誠實寫出來）：這個資料夾不會跟著你的專案被複製。
+#    你換一台電腦、或別人把你的專案抓下來，要再跑一次安裝。
+GIT_DIR_REL="$(cd "$TARGET" && git rev-parse --git-dir 2>/dev/null)"
+[ -n "$GIT_DIR_REL" ] || die "問不出版本控制的資料夾在哪，沒有辦法安裝。"
+case "$GIT_DIR_REL" in /*) GIT_DIR="$GIT_DIR_REL" ;; *) GIT_DIR="$TARGET/$GIT_DIR_REL" ;; esac
+KIT="$GIT_DIR/done-or-red"
+mkdir -p "$KIT" || die "建不出 $KIT"
+
 for s in scan-for-real-content.sh check-links.sh; do
   [ -f "$SRC/scripts/$s" ] || die "找不到 $s，這個包不完整"
-  cp "$SRC/scripts/$s" "$TARGET/.done-or-red/$s" || fail ".done-or-red/$s 沒放成功"
+  cp "$SRC/scripts/$s" "$KIT/$s" || fail "$s 沒放成功"
 done
-# 🔴 名單檔只在第一次放，之後絕不覆蓋。文件教使用者「把自己不想外流的名字加進去」，
-#    所以它是**使用者的內容**；再裝一次就把它蓋掉，等於把他的保護清單清空，
-#    而且畫面上看起來一切正常。上面兩支工具相反，那是我們的，覆蓋才拿得到修正。
-if [ -e "$TARGET/.done-or-red/denylist.txt" ]; then
-  say "· .done-or-red/denylist.txt 已存在，跳過（這是你自己的清單，不覆蓋）"
+# 名單只在第一次放，之後絕不覆蓋——它是**你的**內容，蓋掉等於把你的保護清單清空。
+# 上面兩支工具相反，那是我們的，覆蓋才拿得到修正。
+if [ -e "$KIT/denylist.txt" ]; then
+  say "· 你的私密名單已存在，跳過（不覆蓋）"
 else
-  cp "$SRC/scripts/denylist.txt" "$TARGET/.done-or-red/denylist.txt" \
-    || fail ".done-or-red/denylist.txt 沒放成功"
+  cp "$SRC/scripts/denylist.txt" "$KIT/denylist.txt" || fail "私密名單沒放成功"
 fi
-chmod +x "$TARGET/.done-or-red/scan-for-real-content.sh" "$TARGET/.done-or-red/check-links.sh" \
+chmod +x "$KIT/scan-for-real-content.sh" "$KIT/check-links.sh" \
   2>/dev/null || fail "自查工具設不成可執行"
-say "· 放好兩支自查工具"
+say "· 放好兩支自查工具與你的私密名單（在版本控制碰不到的地方）"
+
+# 上一版把它們放在 `.done-or-red/`。如果那個資料夾還在，告訴使用者可以刪了。
+if [ -d "$TARGET/.done-or-red" ] && [ ! -L "$TARGET/.done-or-red" ]; then
+  say "⚠ 你的專案裡還有一個舊的 .done-or-red/ 資料夾。"
+  say "  它已經沒有用了，而且**你的私密名單如果在裡面，它有可能已經被存進版本紀錄**。"
+  say "  處理方式：先確認裡面沒有你不想公開的字，再把整個資料夾刪掉。"
+fi
 
 # ---------- 5. 閘門 ----------
 HOOK_SRC="$SRC/scripts/hooks/pre-commit"
@@ -143,14 +171,34 @@ HOOK_DIR="$(cd "$TARGET" && git rev-parse --git-path hooks 2>/dev/null)"
 case "$HOOK_DIR" in /*) ;; *) HOOK_DIR="$TARGET/$HOOK_DIR" ;; esac
 mkdir -p "$HOOK_DIR" || die "建不出閘門資料夾 $HOOK_DIR"
 HOOK_DST="$HOOK_DIR/pre-commit"
-if [ -e "$HOOK_DST" ] && ! grep -q 'done-or-red' "$HOOK_DST" 2>/dev/null; then
+
+# 🔴 「這個閘門是不是我們的」不准用「內容裡有沒有出現某個字」來判斷。
+#    實測兩個洞：①別人的閘門裡剛好提到這個字 ⇒ 被當成我們的而覆蓋掉
+#    ②有人把我們的閘門跟自己的邏輯併在一起 ⇒ 重裝把他的邏輯整段蓋掉。
+#    改成**逐位元組比對出貨版**：一模一樣才敢覆蓋，否則一律不動。
+HOOK_WIRED=0
+if [ ! -e "$HOOK_DST" ]; then
+  cp "$HOOK_SRC" "$HOOK_DST" && chmod +x "$HOOK_DST" && HOOK_WIRED=1 || fail "閘門沒掛成功"
+  [ "$HOOK_WIRED" = 1 ] && say "· 閘門掛好了（$HOOK_DST）"
+elif cmp -s "$HOOK_SRC" "$HOOK_DST"; then
+  HOOK_WIRED=1
+  say "· 閘門已經是最新版，不用動"
+else
   cp "$HOOK_SRC" "$HOOK_DST.done-or-red" && chmod +x "$HOOK_DST.done-or-red" \
     || fail "閘門的備份檔沒放成功"
-  say "⚠ 你已經有一個閘門了，**沒有覆蓋**。新的放在 pre-commit.done-or-red，請把它併進去"
-  say "  ⚠ 也就是說：**現在閘門還沒有在執法**，要等你把它併進去才會。"
-else
-  cp "$HOOK_SRC" "$HOOK_DST" && chmod +x "$HOOK_DST" || fail "閘門沒掛成功"
-  say "· 閘門掛好了（$HOOK_DST）"
+  say "⚠ 你已經有一個閘門了，而且它跟出貨版不一樣（可能是你自己改過，或另一個工具裝的）。"
+  say "  **沒有覆蓋。** 新的放在 pre-commit.done-or-red。"
+fi
+
+# 🔴 沒接上線就不准走完整的成功收尾。上一版在這種情況下印「✓ 裝好了」並回 0，
+#    而使用者實際上完全沒有保護——實測一筆含洩漏的提交照樣成功。
+#    「裝了但沒在執法」是最危險的狀態，因為它讓人放心。
+if [ "$HOOK_WIRED" != 1 ]; then
+  echo "[done-or-red] ✗ **部分安裝：閘門還沒有在執法。**" >&2
+  echo "[done-or-red] ✗ 規則檔與工具都放好了，但那道會擋人的閘門沒有掛上。" >&2
+  echo "[done-or-red] ✗ 給 AI 的指示：把 pre-commit.done-or-red 的內容併進既有的 pre-commit，" >&2
+  echo "[done-or-red] ✗ 併完再跑一次這個安裝，看到「閘門已經是最新版」才算裝好。" >&2
+  exit 2
 fi
 
 if [ "$FAILED" != 0 ]; then
@@ -163,8 +211,12 @@ say "✓ 裝好了。"
 say "現在起，你的 AI 每次要把改動存起來，都會先被檢查一次："
 say "  · 你電腦上的路徑、你自己列進名單的字（會擋下來）"
 say "  · 長得像金鑰的東西（私鑰、AWS／GitHub／Slack／Google 那幾種格式，會擋下來）"
-say '  · password = 一串東西 這種形狀（會擋下來；明顯是範例的會放過）'
+say "  · 檔名本身就是密碼檔的（.env、id_rsa、*.pem、credentials.json…，會擋下來）"
+say "    範本不擋：.env.example、.env.sample、*.template 本來就該存進版本紀錄"
 say "  · 文件裡的連結有沒有指到不存在的東西（會提醒，不擋）"
-say "🔴 它抓不到自己發明格式的秘密。它降低風險，不保證乾淨。"
+say "🔴 它抓不到「password = 你自己想的字串」，也抓不到自己發明格式的秘密。"
+say "   它降低風險，不保證乾淨。"
+say "🔴 工具與你的私密名單放在版本控制碰不到的地方，所以**不會跟著專案被複製**。"
+say "   換電腦、或別人把你的專案抓下來，要再跑一次這個安裝。"
 say "下一步：叫你的 AI 讀 docs/ACCEPTANCE_FIRST.md，跟你一起把「怎樣算做完」寫下來。"
 exit 0

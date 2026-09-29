@@ -21,9 +21,20 @@ say() { echo "[done-or-red] $*"; }
 block() { echo "[done-or-red] ✗ $*" >&2; exit 1; }
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || block "找不到專案根目錄，無法檢查。刻意不放行。"
-KIT="$ROOT/.done-or-red"
 
-[ -d "$KIT" ] || block "找不到 $KIT。這批沒有被檢查過，刻意不放行。要重裝請跑這個包的 install.sh。"
+# 🔴 工具與名單放在版本控制自己的內部資料夾，**不是專案資料夾裡**。
+#    那個位置永遠不會被存進版本紀錄，所以：
+#    ①使用者的私密名單不可能被一次「順手全部存起來」推上公開倉庫
+#    ②沒有人能把一個空白的檢查工具存進版本紀錄，讓下一個人以為有保護
+#    兩者都是實測繞得過才改的。共同根因：**閘門不能靠它正在檢查的那個資料夾
+#    裡的東西來證明自己是好的。**
+KIT_REL="$(git rev-parse --git-path done-or-red 2>/dev/null)" \
+  || block "問不出工具放在哪，無法檢查。刻意不放行。"
+case "$KIT_REL" in /*) KIT="$KIT_REL" ;; *) KIT="$ROOT/$KIT_REL" ;; esac
+
+[ -d "$KIT" ] || block "找不到檢查工具（$KIT）。這批沒有被檢查過，刻意不放行。
+要重裝請跑這個包的 install.sh。
+🔴 如果你是剛把這個專案抓下來：那個資料夾刻意不跟著專案複製，跑一次安裝就有了。"
 
 SCANNER="$KIT/scan-for-real-content.sh"
 LINKER="$KIT/check-links.sh"
