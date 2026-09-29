@@ -13,9 +13,16 @@
 | 你在用的 | 檔名要改成 | 放哪裡 |
 |---|---|---|
 | Claude Code | `CLAUDE.md` | 專案最上層 |
-| Cursor | `.cursorrules` | 專案最上層 |
+| Cursor | `.cursor/rules/專案規則.mdc`（舊路徑 `.cursorrules` 仍相容，但已被標為舊版） | `.cursor/rules/` 資料夾裡 |
 | GitHub Copilot | `.github/copilot-instructions.md` | `.github/` 資料夾裡 |
 | 其他／不確定 | `AGENTS.md` | 專案最上層（多數工具認這個） |
+
+🔴 **這張表是一個「別人家的規則」，所以它會過期。**
+每一家都可能改自己認哪個檔名，而**這個包沒有任何機械在守這張表還準不準**——
+這正是 [`docs/cross-system-numbers.md`](./docs/cross-system-numbers.md) 講的那種格子。
+⇒ **以你的工具官方說明為準**；表上跟官方說明不一樣時，照官方的。
+好消息是你不需要先確定哪個對：下面那個「叫它念回來」的驗證，
+檔名放錯的時候一定會失敗。
 
 🔴 **改完要驗一次它真的讀到了**，不要假設。開一次新對話，問：
 > 你現在讀到我的專案規則了嗎？把「不可以碰的邊界」那一段第一條逐字念給我聽。
