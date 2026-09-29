@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# done-or-red 閘門：掛在「存版本」那一步。
+#
+# 🔴 這支的讀者是 AI，不是人。被擋下來的時候，AI 看得懂訊息並自己去修；
+#    使用者只會看到他的 AI 說「我剛才差點把 X 存進去，已經處理掉了」。
+#
+# 兩級硬度（刻意不一樣，理由寫在下面）：
+#   · 洩漏檢查 → **硬擋**。密碼金鑰進了版本紀錄就撤不掉，傷的是別人。
+#   · 連結檢查 → **大聲提醒，放行**。擋下來只會讓人覺得煩，然後把整個閘門刪掉。
+#
+# 🔴 失效方向刻意是「擋住」：檢查工具不見了、讀不到、跑不起來 ⇒ 擋下提交。
+#    因為「沒檢查」跟「檢查過很乾淨」長得一模一樣，而後者是假的。
+#
+# 想暫時跳過（你知道自己在做什麼的時候）：
+#   git commit --no-verify
+# 這是 git 本身的性質，任何閘門都擋不住。它防的是忙中忘記，不是防蓄意繞過。
+
+set -u
+
+say() { echo "[done-or-red] $*"; }
+block() { echo "[done-or-red] ✗ $*" >&2; exit 1; }
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || block "找不到專案根目錄，無法檢查。刻意不放行。"
+KIT="$ROOT/.done-or-red"
+
+[ -d "$KIT" ] || block "找不到 $KIT。這批沒有被檢查過，刻意不放行。要重裝請跑這個包的 install.sh。"
+
+SCANNER="$KIT/scan-for-real-content.sh"
+LINKER="$KIT/check-links.sh"
+DENYLIST="$KIT/denylist.txt"
+
+for f in "$SCANNER" "$DENYLIST"; do
+  [ -r "$f" ] || block "讀不到 $f，這一次的檢查不完整。刻意不放行——「沒檢查」跟「檢查過很乾淨」長得一模一樣。"
+done
+
+# ---------- 硬擋：真實內容外流 ----------
+SCAN_OUT="$(bash "$SCANNER" "$ROOT" "$DENYLIST" 2>&1)"
+SCAN_RC=$?
+case "$SCAN_RC" in
+  0) : ;;
+  1) printf '%s\n' "$SCAN_OUT" >&2
+     block "上面這些地方有不該被存進版本紀錄的內容（密碼、金鑰、或你電腦上的路徑）。
+先把它們拿掉再存一次。
+🔴 給 AI 的指示：不要把這些值改成看起來像假的就算了，要真的移出檔案，
+   改放環境變數或你的工具提供的密鑰保管處，並問使用者去哪裡設定，不要替他填。" ;;
+  *) printf '%s\n' "$SCAN_OUT" >&2
+     block "洩漏檢查跑不起來（回 $SCAN_RC），這一次沒有答案。刻意不放行。" ;;
+esac
+
+# ---------- 大聲提醒但放行：文件之間的指路 ----------
+if [ -r "$LINKER" ]; then
+  LINK_OUT="$(bash "$LINKER" "$ROOT" 2>&1)"
+  LINK_RC=$?
+  if [ "$LINK_RC" != 0 ]; then
+    printf '%s\n' "$LINK_OUT" >&2
+    say "⚠ 上面有連結指不到東西。**這次先放行**，但這是這個包說的「幽靈」——"
+    say "  一條指向不存在的東西的連結，比沒有那條連結危險，因為它讓人以為那件事有人在管。"
+    say "  給 AI 的指示：下一批把它修掉，或者把那條連結刪掉。"
+  fi
+else
+  say "⚠ 找不到連結檢查工具，這一項沒有檢查（洩漏檢查仍然有跑）。"
+fi
+
+say "✓ 檢查通過。"
+exit 0

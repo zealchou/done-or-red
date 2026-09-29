@@ -154,6 +154,80 @@ LINK_RC=$?
 echo "$LINK_OUT"
 check "整個 repo 連結檢查：每一份文件的指路都還指得到（綠）" 0 "$LINK_RC"
 
+# ---------- 樣本 E：安裝動作與閘門（這個包的第三條腿） ----------
+# 前兩條腿（規則檔、記錄檔）都是文字，靠人記得去看。這一組驗的是**會真的擋人**的那條腿。
+#
+# 🔴 四條刻意配成兩組對照，只做 E2 的話「把每一個提交都擋下來」也會過關——
+# 而那種閘門的真實結局是使用者把它整個刪掉。
+#   E1 裝得起來      E2 髒的要被擋      E3 乾淨的不准被擋      E4 自己壞掉時不准放行
+INSTALLER="$SCRIPT_DIR/install.sh"
+
+E_HOME="$TMP/sampleE"
+mkdir -p "$E_HOME"
+bash "$INSTALLER" "$E_HOME" >"$TMP/install.log" 2>&1
+E_RC=$?
+
+# E1：裝得起來，而且四家的規則檔、模板、閘門都到位
+E1_OK=0
+if [ "$E_RC" = 0 ]; then
+  E1_OK=1
+  for f in CLAUDE.md AGENTS.md .github/copilot-instructions.md .cursor/rules/done-or-red.mdc \
+           docs/ACCEPTANCE_FIRST.md docs/PROJECT_NOTEBOOK.md .git/hooks/pre-commit; do
+    [ -e "$E_HOME/$f" ] || { E1_OK=0; echo "  （E1 缺：$f）"; }
+  done
+fi
+check "樣本E1 安裝：四家規則檔＋模板＋閘門都到位" 1 "$E1_OK"
+
+# 準備一個能提交的環境
+git -C "$E_HOME" config user.email "test@example.invalid" >/dev/null 2>&1
+git -C "$E_HOME" config user.name "test" >/dev/null 2>&1
+
+# E2：含違規內容的提交要被擋（正向）
+# 🔴 這一條刻意**不只看退出碼**。第一版只看退出碼時它是綠的，
+# 但綠的原因是那個資料夾當時根本還不是版本控制倉庫、提交本來就會失敗——
+# 也就是說閘門不存在它也會綠，零證明力。所以改成必須同時看到閘門自己印的記號。
+echo "設定檔路徑寫死在 /home/testuser/secret.json 裡" >"$E_HOME/dirty.txt"
+git -C "$E_HOME" add dirty.txt >/dev/null 2>&1
+git -C "$E_HOME" commit -m "髒的" >"$TMP/e2.log" 2>&1
+E2_RC=$?
+E2_OK=0
+if [ "$E2_RC" -ne 0 ] && grep -q '\[done-or-red\]' "$TMP/e2.log"; then E2_OK=1; fi
+check "樣本E2 正向：含違規內容的提交要被閘門擋下（且訊息出自閘門本身）" 1 "$E2_OK"
+
+# E3：乾淨的提交不准被誤擋（反向，跟 E2 同一批存在）
+rm -f "$E_HOME/dirty.txt"
+git -C "$E_HOME" rm --cached dirty.txt >/dev/null 2>&1
+echo "這是一份完全乾淨的說明文字。" >"$E_HOME/clean.txt"
+git -C "$E_HOME" add -A >/dev/null 2>&1
+git -C "$E_HOME" commit -m "乾淨的" >"$TMP/e3.log" 2>&1
+check "樣本E3 反向：乾淨的提交不准被誤擋（0）" 0 $?
+
+# E4：閘門自己壞掉的時候不准放行（失效方向）
+# 🔴 這一條的第一版也是空綠，而且比 E2 那次更隱蔽：
+#   提交確實失敗了、輸出裡確實有閘門的記號，但**失敗原因不是閘門擋住**——
+#   把檢查工具鎖成不可讀之後，版本控制自己就無法把檔案排進暫存區，
+#   於是變成「沒有東西要提交」而失敗，而閘門那一輪其實是印「✓ 檢查通過」的。
+#   ⇒ 兩個修法都必要：①先排好暫存再鎖檔，別讓鎖檔影響排檔
+#                    ②斷言改成認閘門**拒絕時才會講的那句話**，不是任何一個記號
+E4_OK=0
+if [ -f "$E_HOME/.done-or-red/scan-for-real-content.sh" ]; then
+  echo "再一筆乾淨的文字。" >"$E_HOME/clean2.txt"
+  git -C "$E_HOME" add -A >/dev/null 2>&1          # 先排好，再鎖
+  chmod 000 "$E_HOME/.done-or-red/scan-for-real-content.sh"
+  git -C "$E_HOME" commit -m "檢查壞掉時" >"$TMP/e4.log" 2>&1
+  E4_RC=$?
+  chmod 644 "$E_HOME/.done-or-red/scan-for-real-content.sh"
+  if [ "$E4_RC" -ne 0 ] && grep -q '刻意不放行' "$TMP/e4.log"; then E4_OK=1; fi
+fi
+check "樣本E4 失效方向：檢查工具讀不到時要由閘門擋下提交，不准放行" 1 "$E4_OK"
+
+# E5：裝出來的東西自己不准有斷連結
+# 🔴 這一條是**補一個真的發生過的缺陷**，不是想像出來的：
+#    第一版安裝腳本直接複製檔案，於是規則檔裡指向這個包其他文件的連結全部斷掉，
+#    一裝完就有 6 條幽靈連結——而且是被這個包自己的閘門在提交時抓到的。
+bash "$LINKER" "$E_HOME" >/dev/null 2>&1
+check "樣本E5 裝出來的成品：不准有指不到東西的連結" 0 $?
+
 echo "----"
 echo "通過 $PASS / 失敗 $FAIL"
 [ "$FAIL" -eq 0 ]
