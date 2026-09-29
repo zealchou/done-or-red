@@ -5,7 +5,7 @@
 #   樣本 A：絕對路徑違規（靠正規表達式）
 #   樣本 B：denylist 詞違規（靠清單逐字比對）
 #   樣本 C：機器產生的資料夾要被跳過，但普通檔案裡的同一個字串還是要抓到（靠目錄排除）
-#   樣本 D：文件之間的指路還在不在（靠 check-links.sh，被測的是另一支腳本）
+#   樣本 D：文件之間的指路還在不在（靠 check-links.sh；分 D1 正向／D2 反向／D3 失效方向三份）
 # 拔除演練的意思是：把對應的檢查邏輯關掉，同一份原本該被擋的違規檔案
 # 必須變成「放行」——藉此證明剛才擋下它的，真的是那條邏輯，不是巧合。
 #
@@ -98,17 +98,57 @@ check "整個 repo 掃描：出貨版應該零命中" 0 "$REPO_RC"
 # ---------- 樣本 D：文件之間的指路還在不在（check-links.sh） ----------
 # 這一組補的是這個包自己欠的一條：在這之前，把任何一份文件的連結刪掉或改錯，
 # 這支自我測試都不會變紅——而那正是本包 GDD 那一節在講的「幽靈文件」。
+#
+# 🔴 這一組刻意分成三份互不混用的樣本，因為**只驗「有沒有抓到」驗不到誤報**：
+#   D1 只有壞連結  ⇒ 驗正向：抓到，而且筆數剛好對
+#   D2 全部是好連結（含 title／角括號／%20／參考式／圖片五種寫法）⇒ 驗反向：一筆都不准報
+#   D3 有一個讀不到的檔案 ⇒ 驗失效方向：不准回報乾淨，要回 2
+# 只做 D1 的話，「把每一條連結都當成壞的」也會通過。
 LINKER="$SCRIPT_DIR/check-links.sh"
-mkdir -p "$TMP/sampleD/docs"
-printf '看 [這一份](./docs/does-not-exist.md) 還有 [這一份](./docs/real.md)\n' >"$TMP/sampleD/a.md"
-echo "存在的檔案" >"$TMP/sampleD/docs/real.md"
 
-bash "$LINKER" "$TMP/sampleD" >/dev/null 2>&1
-check "樣本D 正向：指不到東西的連結要被抓到（紅）" 1 $?
+# --- D1：只有壞連結 ---
+mkdir -p "$TMP/sampleD1/docs"
+printf '看 [這一份](./docs/does-not-exist.md) 還有 [那一份](./docs/also-missing.md)\n' >"$TMP/sampleD1/a.md"
 
-LINKCHECK_DISABLE_EXISTS=1 bash "$LINKER" "$TMP/sampleD" >/dev/null 2>&1
-check "樣本D 拔除演練：關掉「目標存不存在」這條判斷後，同一份壞連結應變成放行" 0 $?
+D1_OUT="$(bash "$LINKER" "$TMP/sampleD1" 2>&1)"
+check "樣本D1 正向：指不到東西的連結要被抓到（紅）" 1 $?
+D1_HITS="$(printf '%s\n' "$D1_OUT" | grep -c '^\[link\]' || true)"
+check "樣本D1 筆數：兩條壞連結要報 2 筆，不是只報 1 筆（少報就是斷言太鬆）" 2 "$D1_HITS"
 
+D2_DRILL="$(LINKCHECK_DISABLE_EXISTS=1 bash "$LINKER" "$TMP/sampleD1" 2>&1)"
+D2_DRILL_RC=$?
+check "樣本D1 拔除演練：關掉「目標存不存在」這條判斷後，同一份壞連結應變成放行" 0 "$D2_DRILL_RC"
+
+# --- D2：全部是好連結，五種寫法都不准被誤報 ---
+mkdir -p "$TMP/sampleD2/d"
+echo ok >"$TMP/sampleD2/d/x.md"
+echo ok >"$TMP/sampleD2/d/x y.md"
+printf 'x' >"$TMP/sampleD2/d/pic.png"
+cat >"$TMP/sampleD2/a.md" <<'EOF'
+[帶標題](./d/x.md "標題")
+[角括號](<./d/x y.md>)
+[編碼空白](./d/x%20y.md)
+[參考式][id]
+[id]: ./d/x.md
+![圖片](./d/pic.png)
+EOF
+D2_OUT="$(bash "$LINKER" "$TMP/sampleD2" 2>&1)"
+D2_RC=$?
+check "樣本D2 反向：五種合法寫法且目標都存在，一筆都不准報（綠）" 0 "$D2_RC"
+D2_HITS="$(printf '%s\n' "$D2_OUT" | grep -c '^\[link\]' || true)"
+check "樣本D2 筆數：誤報數必須是 0" 0 "$D2_HITS"
+D2_CHECKED="$(printf '%s\n' "$D2_OUT" | grep -c '個相對連結，全部指得到' || true)"
+check "樣本D2 覆蓋：它真的走完了（不是因為一條都沒抽到才全綠）" 1 "$D2_CHECKED"
+
+# --- D3：讀不到檔案時不准回報乾淨（失效方向） ---
+mkdir -p "$TMP/sampleD3"
+printf '[x](./missing.md)\n' >"$TMP/sampleD3/locked.md"
+chmod 000 "$TMP/sampleD3/locked.md"
+bash "$LINKER" "$TMP/sampleD3" >/dev/null 2>&1
+check "樣本D3 失效方向：有檔案讀不到時要回 2（不是 0 也不是 1）" 2 $?
+chmod 644 "$TMP/sampleD3/locked.md"
+
+# --- 對整個 repo 實跑 ---
 LINK_OUT="$(bash "$LINKER" "$SCRIPT_DIR/.." 2>&1)"
 LINK_RC=$?
 echo "$LINK_OUT"
