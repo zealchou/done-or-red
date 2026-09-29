@@ -3,7 +3,8 @@
 **一件事只有兩種狀態：有證據說它做完了，或者它現在是紅的——沒有「快好了」。**
 
 「已經派出去做」「架子搭好了」「測試跑過一次」都不等於「做完了」，這個工具包收的是
-一套逼自己誠實回答「到底完不完成」的紀律模板與判準，不是一套框架、不是一個要安裝的系統。
+一套逼自己誠實回答「到底完不完成」的紀律。它不是框架、不需要連網、不需要任何額外的執行環境——
+純文字模板、幾支 bash 腳本，加**一道會真的擋住你的閘門**。
 
 ## 30 秒看懂：跟「感覺做完了」比起來，這套東西多問了什麼
 
@@ -29,22 +30,31 @@
 **你不必把這些檔案讀完。** 每一份的開頭都有一段「給 AI 的指示」——
 那是寫給你的 AI 助手看的，讓它在該用的那一刻自己照做。
 
-⇒ **你只要做兩件事**：
+⇒ **你只要做一件事：叫你的 AI 跑一次安裝。**
 
-1. 開新專案時，跟 AI 一起走 [`START_HERE.md`](./START_HERE.md)（十題，不知道的都有預設答案）。
-2. 把 [`AI_RULES.md`](./AI_RULES.md) 複製到你專案最上層，**改成你的助手認得的檔名**
-   （Claude Code 是 `CLAUDE.md`、Cursor 是 `.cursorrules`，對照表在那份檔案裡）。
-   這是整包唯一一份「你不必記得打開」的檔案——它會被 AI 每一輪自動讀到。
+```
+bash scripts/install.sh /你的專案資料夾
+```
+
+它會把規則檔用**四家 AI 助手的檔名一次全放好**（所以你用哪一個都通）、把模板放進你的
+`docs/`、並且**把一道閘門掛在「存版本」那一步**——之後你的 AI 每次要把改動存起來，
+都會先被檢查一次。
+
+🔴 **被擋下來的是你的 AI，不是你。** 它自己看得懂訊息、自己去修；
+你只會看到它跟你說「我剛才差點把密碼存進去，已經處理掉了」。
+
+想知道它到底裝了什麼、或不想用腳本 ⇒ 看 [`AI_RULES.md`](./AI_RULES.md) 開頭那張對照表。
+開新專案想先把方向講清楚 ⇒ 跟 AI 一起走 [`START_HERE.md`](./START_HERE.md)（十題，不知道的都有預設）。
 
 其餘每一份都對應一個特定時刻，什麼時候該讀哪一份看
 [`READ_THIS_WHEN.md`](./READ_THIS_WHEN.md)（那張表也是給 AI 看的）。
 
 ## 60 秒上手
 
-1. 把 [`templates/`](./templates) 資料夾裡的模板複製到你自己專案的 `docs/` 底下：
-   `ACCEPTANCE_FIRST.md`（驗收條件）、`RULINGS.md`（裁決登記簿）、
-   `DEFERRED_DEFECTS.md`（延後缺陷）、`PROJECT_NOTEBOOK.md`（工作日誌）。
-2. 開工前把 `ACCEPTANCE_FIRST.md` 四段填完，**現在跑一次驗收指令，它應該是紅的**。
+1. **跑一次安裝**：`bash scripts/install.sh /你的專案資料夾`
+   （模板、四家的規則檔、閘門，它一次弄好。不想用腳本就手動複製
+   [`templates/`](./templates) 到你的 `docs/`，並照 [`AI_RULES.md`](./AI_RULES.md) 改檔名。）
+2. 開工前把你專案裡的 `docs/ACCEPTANCE_FIRST.md` 四段填完，**現在跑一次驗收指令，它應該是紅的**。
 3. 第一版要做什麼，用 [`docs/starter-five.md`](./docs/starter-five.md) 封頂在五件事，
    其餘全部進「不做清單」。每一件動手前填一張
    [`docs/feature-one-pager.md`](./docs/feature-one-pager.md)。
@@ -65,7 +75,9 @@
    倉庫網址，不跳過的話你把自己的專案名加進清單就會命中自己、永遠失敗——
    **一個「檢查我有沒有外流」的工具，不該把「你是誰」當成「你洩漏了什麼」。**
 
-不需要安裝、不需要連網、不需要任何額外的執行環境——全部是純文字模板加三支 bash 腳本。
+🔴 **交出去之前**：讓**另一顆模型**挑一次錯（[`docs/second-opinion.md`](./docs/second-opinion.md)），
+並且把你的檢查**故意弄壞一次**證明它真的會紅（[`docs/break-it-on-purpose.md`](./docs/break-it-on-purpose.md)）。
+這兩件事是整包最有效的兩條，而且都不需要你會任何技術。
 
 ## 為什麼存在
 
@@ -111,6 +123,11 @@
 - [`scenarios/data-and-privacy.md`](./scenarios/data-and-privacy.md) — 碰到別人的資料
 - [`scenarios/writing-and-docs.md`](./scenarios/writing-and-docs.md) — 做文件、內容、報告
 
+**交出去之前（這兩份最有效）**
+
+- [`docs/second-opinion.md`](./docs/second-opinion.md) — 讓另一顆模型挑一次錯，並且逐條判兩次
+- [`docs/break-it-on-purpose.md`](./docs/break-it-on-purpose.md) — 故意弄壞它，證明你的檢查真的會叫
+
 **要做自動化的時候**
 
 - [`docs/hook-contract.md`](./docs/hook-contract.md) — 一個「會自動擋住你」的東西要先講清楚的八件事
@@ -121,7 +138,10 @@
 - [`example/`](./example) — 模板／文件用一個虛構專案填完的樣子
 - [`scripts/scan-for-real-content.sh`](./scripts/scan-for-real-content.sh) — 掃「有沒有真實內容外流」的自查工具
 - [`scripts/check-links.sh`](./scripts/check-links.sh) — 掃「文件之間的指路還在不在」
-- [`scripts/test-scan.sh`](./scripts/test-scan.sh) — 上面兩支腳本的自我測試（先紅後綠＋拔除演練）
+- [`scripts/install.sh`](./scripts/install.sh) — **單一安裝入口**：模板、四家規則檔、閘門一次弄好
+- [`scripts/hooks/pre-commit`](./scripts/hooks/pre-commit) — 那道閘門本身（掛在「存版本」那一步）
+- [`scripts/test-scan.sh`](./scripts/test-scan.sh) — 上面全部的自我測試，22 項（先紅後綠＋拔除演練）
+- [`docs/ACCEPTANCE_FIRST.md`](./docs/ACCEPTANCE_FIRST.md) — **這個包自己的**驗收條件（不是模板、不是範例）
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — 貢獻指南與行為準則
 - [`ISSUE_TEMPLATE.md`](./ISSUE_TEMPLATE.md) — 問題回報模板
 - [`LICENSE`](./LICENSE) — 授權條款
@@ -132,15 +152,30 @@
 修改。完整流程與行為準則見 [`CONTRIBUTING.md`](./CONTRIBUTING.md)；回報問題請照
 [`ISSUE_TEMPLATE.md`](./ISSUE_TEMPLATE.md) 的欄位填。
 
-## 這一版刻意沒做的事（第二版再補）
+## 這一版做不到的事（誠實劃線，不是佔位）
 
-這個包只有文字模板與三支**自查**腳本（掃洩漏、掃連結、跑前兩支的自我測試），
-**沒有**把「機械執法的閘門」做成可以直接掛進你自己 CI 的腳本
-（例如：真的擋下一個沒填驗收條件的提交、真的擋下一個過期的接線圖）。
-🔴 **自查腳本跟執法閘門是兩件事**：前者是你主動跑的檢查，後者會自己擋住你。
-要自己做一個會擋人的，先填 [`docs/hook-contract.md`](./docs/hook-contract.md) 八格。
-這不是空殼佔位——是誠實劃線：這一版給的是紀律本身跟怎麼判斷，執法腳本需要配合
-各專案自己的工具鏈（Git hook、CI 設定）才有意義，之後另外出。
+### ✅ 已補上：現在真的有一道會擋人的閘門了（2026-09-29）
+
+~~這個包只有文字模板與自查腳本，沒有把「機械執法的閘門」做出來，之後另外出。~~
+
+**已改**：[`scripts/install.sh`](./scripts/install.sh) 會把
+[一道閘門](./scripts/hooks/pre-commit) 掛在「存版本」那一步。三種情況硬度刻意不一樣：
+
+| 情況 | 硬度 | 為什麼 |
+|---|---|---|
+| 把密碼、金鑰、你電腦上的路徑寫進檔案 | **硬擋** | 進了版本紀錄就撤不掉，而且傷的是別人 |
+| 文件裡的連結指不到東西 | **大聲提醒，放行** | 擋下來只會讓人覺得煩，然後把整個閘門刪掉 |
+| 閘門自己壞掉（工具不見、讀不到） | **擋住** | 「沒檢查」跟「檢查過很乾淨」長得一模一樣，後者是假的 |
+
+要自己再加一道會擋人的，先填 [`docs/hook-contract.md`](./docs/hook-contract.md) 八格。
+
+### 🔴 這道閘門擋不到的三層（實測過才寫的）
+
+1. **它在「存版本」那一步才擋，不是在 AI 寫檔案的當下。**
+   要在寫的當下攔，需要各家 AI 助手自己的機制，每家不一樣——這個包刻意不綁任何一家。
+2. **如果你從來不存版本，它永遠不會觸發。**（實務上你的 AI 會替你存。）
+3. **`git commit --no-verify` 可以整段跳過它。** 這是版本控制本身的性質。
+   ⇒ **它防的是忙中忘記，不是防蓄意繞過。**
 
 ### ✅ 已補上：文件之間的指路現在有機械在守（2026-09-29）
 

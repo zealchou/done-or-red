@@ -15,7 +15,8 @@
 
 | 你現在在做什麼 | 讀這份 | 🔴 回讀題（答不出來就是沒讀進去） |
 |---|---|---|
-| **第一次開這個專案** | [`START_HERE.md`](./START_HERE.md) | 十題裡哪兩題不准跳過？為什麼？ |
+| **第一次開這個專案** | [`START_HERE.md`](./START_HERE.md) | 十題裡哪一題不准用預設值帶過？為什麼？ |
+| **要把這套裝進一個新專案** | [`scripts/install.sh`](./scripts/install.sh) | 它為什麼不覆蓋你已經有的檔案？ |
 | **設定 AI 助手** | [`AI_RULES.md`](./AI_RULES.md) | 檔名要改成什麼？怎麼驗它真的讀到了？ |
 | **要決定第一版做什麼** | [`docs/starter-five.md`](./docs/starter-five.md) | 五件裡哪一件是第 1 件？判準是什麼？ |
 | **要加一個功能** | [`docs/feature-one-pager.md`](./docs/feature-one-pager.md) | 第 2 格與第 4 格必須指向什麼？對不起來代表什麼？ |
@@ -25,6 +26,8 @@
 | **發現問題但這批不修** | [`templates/DEFERRED_DEFECTS.md`](./templates/DEFERRED_DEFECTS.md) | 狀態欄只寫「延後」為什麼不算填完？ |
 | **覺得快要做完了** | [`docs/three-track-checklist.md`](./docs/three-track-checklist.md) | 三軌分別檢查什麼？哪一軌最容易被漏掉？ |
 | **要說「做完了」之前** | [`docs/evidence-ledger.md`](./docs/evidence-ledger.md) | 哪些事情一律是「人」驗、不准歸給機器？ |
+| **寫完一個檢查（測試／驗證）** | [`docs/break-it-on-purpose.md`](./docs/break-it-on-purpose.md) | 弄壞之後沒變紅，第一個該懷疑的是什麼？ |
+| **要交給別人看／要說做完了之前** | [`docs/second-opinion.md`](./docs/second-opinion.md) | 挑錯的那一方不准看過什麼？拿到回覆要判哪兩題？ |
 | **這批有一個值要送給別的服務收** | [`docs/cross-system-numbers.md`](./docs/cross-system-numbers.md) | 為什麼「我方測試全綠」在這一格沒有證明力？ |
 | **要改動一個比較大的東西** | [`docs/change-size-gate.md`](./docs/change-size-gate.md) | 三題都答「不」的時候該做什麼？替代案那一格為什麼不准寫「沒有別的做法」？ |
 | **動工前想找出沒想清楚的地方** | [`docs/grilling-your-plan.md`](./docs/grilling-your-plan.md) | 一個問題要滿足什麼條件才值得問？ |
